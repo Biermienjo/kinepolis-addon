@@ -16,7 +16,7 @@ import api
 
 DATA = Path(os.environ.get("DATA_DIR", "/data"))
 DEFAULT_ALIASES = {"kortrijk": "KKOR", "brussel": "KBRU", "leuven": "SL"}
-DEFAULT_FILM_PAGES = "https://web.kinepolis.be/films, https://www.kinepolis.be/nl/films"
+DEFAULT_FILM_PAGES = "https://www.kinepolis.be/nl/films/, https://web.kinepolis.be/films"
 DAYS = ["ma", "di", "wo", "do", "vr", "za", "zo"]
 # Herkenbare formaten in rawSessionAttributes (vrije tekst van Kinepolis).
 FORMATS = ["IMAX", "70mm", "Laser ULTRA", "4DX", "ScreenX", "Dolby Atmos", "3D", "OV"]

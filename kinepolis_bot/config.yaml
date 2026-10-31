@@ -22,7 +22,7 @@ options:
   locaties: "kortrijk=KKOR, brussel=KBRU, leuven=SL"
   scan_interval_seconds: 30
   ha_notify_service: ""
-  film_paginas: "https://web.kinepolis.be/films, https://www.kinepolis.be/nl/films"
+  film_paginas: "https://www.kinepolis.be/nl/films/, https://web.kinepolis.be/films"
 schema:
   telegram_token: password?
   telegram_chat_id: str?

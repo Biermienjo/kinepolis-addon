@@ -1,8 +1,15 @@
 # Changelog
 
 ## 0.6.3
+- **Stoelen aanklikken**: een gekozen stoel wordt nu ook herkend als de site hem anders toont
+  (class of label i.p.v. `aria-pressed`). Bij twijfel geldt een actieve knop *Tickets selecteren*.
+  Lukt het niet, dan staat in het log hoe de stoel eruitziet (`[stoelen] …`).
+- **Films op naam**: lange filmlijsten (zoals `kinepolis.be/nl/films/`) worden helemaal
+  doorgescrold, zodat ook films ver onderaan (bv. Dune Part Three) gevonden worden.
+- **Telegram**: fout "chat_id is empty" bij het weghalen van de knoppen opgelost; de melding in
+  de app wijst alleen nog naar je token als de token echt het probleem is.
 - Knop **Bijwerken** weggehaald (Home Assistant laat een add-on zichzelf niet bijwerken).
-  De add-on laat HA nog wel elk uur naar updates kijken; met *Auto update* gaat het vanzelf.
+  De add-on laat HA wel elk uur naar updates kijken; met *Auto update* gaat het vanzelf.
 
 ## 0.6.2
 - Fix "kon geen geldige sleutel ophalen": de browser zoekt de Kinepolis-sleutel nu ook op een

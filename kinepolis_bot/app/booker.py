@@ -27,6 +27,7 @@ CONTINUE_BUTTON = re.compile(r"^\s*(doorgaan|ga verder|verder|volgende|bevestig\
 PAY_WORDS = re.compile(r"betaal|betalen|pay", re.I)
 COOKIE_BUTTON = re.compile(r"alles accepteren|accepteer alle|alle cookies accepteren|akkoord|"
                            r"alles toestaan|alle toestaan|accepteren|accept all|tout accepter", re.I)
+MORE_BUTTON = re.compile(r"(toon|laad|bekijk|meer) (meer|films)|load more|show more|voir plus", re.I)
 _JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")
 
 
@@ -255,24 +256,41 @@ class Booker:
                         page.wait_for_load_state("networkidle", timeout=10_000)
                     except PwTimeout:
                         pass
-                    for _ in range(6):                       # lijsten laden soms pas bij scrollen
-                        page.mouse.wheel(0, 3000)
+                    # Lange lijsten laden pas bij scrollen (en halen soms oude kaarten weg):
+                    # scrollen tot er niets meer bijkomt en onderweg alle links verzamelen.
+                    still = 0
+                    for _ in range(60):
+                        self._collect_films(page, films)
+                        try:
+                            page.get_by_role("button", name=MORE_BUTTON).first.click(timeout=300)
+                        except (PwTimeout, PwError):
+                            pass
+                        before = page.evaluate("[document.body.scrollHeight, window.scrollY]")
+                        page.mouse.wheel(0, 2500)
                         page.wait_for_timeout(400)
-                    for a in page.evaluate(_CATALOG_JS):
-                        m = _FILM_RE.search(a["href"])
-                        if not m:
-                            continue
-                        ho, slug = (m[1], m[2]) if m[1] else (m[4], m[3])
-                        title = a["text"].split("\n")[0].strip()[:80]
-                        film = films.setdefault(ho, {"id": ho, "slug": slug.lower(), "url": a["href"],
-                                                     "title": slug.replace("-", " ").title()})
-                        if len(title) > 2 and not title.lower().startswith(("meer", "koop", "tickets")):
-                            film["title"] = title
+                        after = page.evaluate("[document.body.scrollHeight, window.scrollY]")
+                        still = still + 1 if after == before else 0
+                        if still >= 3:                           # 3x niets nieuws: einde lijst
+                            break
+                    self._collect_films(page, films)
                 except PwError as e:
                     print(f"[catalogus] {url}: {e}", flush=True)
         finally:
             page.close()
         return list(films.values())
+
+    @staticmethod
+    def _collect_films(page, films: dict[str, dict]):
+        for a in page.evaluate(_CATALOG_JS):
+            m = _FILM_RE.search(a["href"])
+            if not m:
+                continue
+            ho, slug = (m[1], m[2]) if m[1] else (m[4], m[3])
+            title = a["text"].split("\n")[0].strip()[:80]
+            film = films.setdefault(ho, {"id": ho, "slug": slug.lower(), "url": a["href"],
+                                         "title": slug.replace("-", " ").title()})
+            if len(title) > 2 and not title.lower().startswith(("meer", "koop", "tickets")):
+                film["title"] = title
 
     def _accept_cookies_on(self, page):
         for frame in page.frames:

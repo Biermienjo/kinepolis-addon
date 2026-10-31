@@ -91,6 +91,26 @@ if __name__ == "__main__":
         assert b.api_token(["https://web.kinepolis.be/films"], wait_s=2) is None
         print(f"geen sleutel: None na {__import__('time').time() - t0:.0f} s")
 
+        # d) lange filmlijst die per 10 bijlaadt bij scrollen en oude kaarten weghaalt;
+        #    Dune als 56ste, met de echte linkvorm van www.kinepolis.be
+        cards = [f'["/nl/films/film-{i}/HO{i:08d}/", "Film {i}"]' for i in range(60)]
+        cards[55] = '["/nl/films/dune-part-three/HO00013472/", "Dune Part Three"]'
+        lazy = ("<html><body style='margin:0'><div id=g></div><script>"
+                f"const all=[{','.join(cards)}];let n=0;"
+                "function more(){if(n>=all.length)return;const g=document.getElementById('g');"
+                "for(const [h,t] of all.slice(n,n+10)){const a=document.createElement('a');a.href=h;"
+                "a.textContent=t;a.style='display:block;height:300px';g.appendChild(a)}n+=10;"
+                "while(g.children.length>20)g.removeChild(g.firstChild);}"   # virtualisatie
+                "more();more();addEventListener('scroll',()=>{if(innerHeight+scrollY>"
+                "document.body.scrollHeight-400)more()});</script></body></html>")
+        b.context.route("https://www.kinepolis.be/nl/films/", lambda r: r.fulfill(
+            status=200, content_type="text/html; charset=utf-8", body=lazy))
+        found = b.catalog(["https://www.kinepolis.be/nl/films/"])
+        import core
+        hits = core.match_films(found, "dune part 3")
+        print(f"catalogus: {len(found)} films, 'dune part 3' ->", [(h["id"], h["title"]) for h in hits])
+        assert len(found) == 60 and hits and hits[0]["id"] == "HO00013472", (len(found), hits)
+
         res = b.open_seats(url, 40)
         print(res.status, "|", res.message)
         assert res.status == "no_seats"
