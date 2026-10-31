@@ -132,6 +132,36 @@ class Booker:
         return self._done("choose", "Beste stoelen gekozen. Pas aan of zet ze in je mandje.",
                           [s.label for s in group], seat_map)
 
+    def api_token(self, urls: list[str], wait_s: int = 25) -> str | None:
+        """Toegangssleutel (Bearer) die de Kinepolis-site zelf gebruikt voor zijn API.
+
+        Opent een Kinepolis-pagina in een apart tabblad en leest de Authorization-header
+        van de eerste aanvraag naar digital-api.kinepolis.be.
+        """
+        page = self.context.new_page()
+        seen = []
+        page.on("request", lambda r: seen.append(r) if "digital-api.kinepolis.be" in r.url else None)
+        try:
+            for url in urls:
+                try:
+                    page.goto(url, wait_until="domcontentloaded", timeout=45_000)
+                    self._accept_cookies_on(page)
+                    deadline = time.time() + wait_s
+                    while time.time() < deadline:
+                        for r in list(seen):
+                            try:
+                                auth = r.all_headers().get("authorization", "")
+                            except PwError:
+                                continue
+                            if auth.lower().startswith("bearer "):
+                                return auth[7:].strip()
+                        page.wait_for_timeout(500)
+                except PwError as e:
+                    print(f"[sleutel] {url}: {e}", flush=True)
+        finally:
+            page.close()
+        return None
+
     def catalog(self, urls: list[str]) -> list[dict]:
         """Films die op deze Kinepolis-pagina's gelinkt staan: [{id, slug, title, url}].
 

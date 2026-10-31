@@ -32,6 +32,7 @@ WEB_DIR = Path(__file__).parent / "web"
 NOVNC_DIR = Path(os.environ.get("NOVNC_DIR", "/usr/share/novnc"))
 INGRESS_PEERS = {"172.30.32.2", "127.0.0.1", "::1"}
 BUSY = {"loading", "booking"}
+TOKEN_PAGES = ["https://web.kinepolis.be/films", "https://www.kinepolis.be/nl/"]
 QUEUE_WAIT_S = 600          # bij een drop: tot 10 min wachten in een eventuele wachtrij
 CATALOG_EVERY_S = 300       # zo vaak kijken of een film (op naam) al op Kinepolis staat
 
@@ -53,7 +54,8 @@ class Engine:
         self.tasks: queue.Queue = queue.Queue()
         self._booker = None
         self._tg_msg: int | None = None           # Telegram-bericht met de knoppen
-        threading.Thread(target=self._work, daemon=True, name="browser").start()
+        self._worker = threading.Thread(target=self._work, daemon=True, name="browser")
+        self._worker.start()
 
     def start_background(self):
         threading.Thread(target=self._scan_loop, daemon=True, name="scanner").start()
@@ -235,6 +237,22 @@ class Engine:
                 self.shot = shot
                 self.update(has_shot=True)
         self.tasks.put((grab, ()))
+
+    # ---------- Kinepolis-sleutel ----------
+    def fetch_api_token(self, timeout: float = 120) -> str | None:
+        """Laat de browser de sleutel opvangen die de Kinepolis-site gebruikt."""
+        if threading.current_thread() is self._worker:          # al in de werkthread
+            return self.booker.api_token(TOKEN_PAGES)
+        done, box = threading.Event(), {}
+
+        def task():
+            try:
+                box["token"] = self.booker.api_token(TOKEN_PAGES)
+            finally:
+                done.set()
+        self.tasks.put((task, ()))
+        done.wait(timeout)
+        return box.get("token")
 
     # ---------- films op naam ----------
     def catalog_lookup(self, name: str, timeout: float = 90) -> list[dict] | None:
@@ -699,6 +717,7 @@ def main():
     engine = Engine(store, notifier, booker_factory, int(opts.get("scan_interval_seconds", 30)), names,
                     catalog_urls)
     print(f"[telegram] {notifier.describe()}", flush=True)
+    api.token_provider = engine.fetch_api_token
     engine.tasks.put((lambda: engine.booker, ()))     # browser alvast starten
     engine.start_background()
     web.run_app(make_app(engine, store), host="0.0.0.0", port=int(os.environ.get("PORT", 8099)))

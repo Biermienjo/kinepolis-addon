@@ -55,6 +55,18 @@ if __name__ == "__main__":
         assert res.status == "in_cart", res.status
         assert "customer-details?q=2" in b.page.url, b.page.url   # 2x Volwassene, niet betaald
 
+        # sleutel opvangen: de site roept digital-api aan met een Authorization-header
+        b.context.route("**/films", lambda r: r.fulfill(status=200, content_type="text/html", body=
+            "<html><body><script>fetch('https://digital-api.kinepolis.be/ocapi/v1/films',"
+            "{headers:{Authorization:'Bearer abc.def.ghi'}})</script></body></html>"))
+        b.context.route(re.compile(r"https://digital-api\.kinepolis\.be/.*"),
+                        lambda r: r.fulfill(status=200, content_type="application/json", body="[]",
+                                            headers={"access-control-allow-origin": "*",
+                                                     "access-control-allow-headers": "*"}))
+        tok = b.api_token(["https://web.kinepolis.be/films"], wait_s=10)
+        print("sleutel:", tok)
+        assert tok == "abc.def.ghi", tok
+
         res = b.open_seats(url, 40)
         print(res.status, "|", res.message)
         assert res.status == "no_seats"

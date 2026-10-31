@@ -54,6 +54,8 @@ de app opnieuw en krijg je een nieuw voorstel.
 - **Voorstellingen** komen van de nieuwe Kinepolis-site (OCAPI, films met een HO-code zoals
   `HO00013277`). De eerste speeldag wordt bij elke controle vers opgevraagd, zodat je een
   drop meteen ziet; latere dagen (tot 14 dagen erna) hoogstens om de 5 minuten.
+- **Toegang:** de Kinepolis-API vraagt een anonieme sleutel (±12 uur geldig). De browser op de
+  Pi vangt die op zoals de website hem gebruikt, en haalt een nieuwe als hij vervalt.
 - **Films op naam** zoekt de app op de pagina's in `film_paginas` (plus altijd
   `web.kinepolis.be/films`). Je kunt ook een link plakken, van de oude of de nieuwe site.
 - **Cinemanamen** leert de app van Kinepolis zelf; `locaties` bepaalt welke cinema's je kunt

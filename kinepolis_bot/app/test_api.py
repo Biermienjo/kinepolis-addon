@@ -26,7 +26,15 @@ class Resp:
             raise RuntimeError(f"HTTP {self.status_code}")
 
 
-def fake_get(url, params=None, **kw):
+TOKEN = "x." + api.base64.urlsafe_b64encode(
+    api.json.dumps({"exp": api.time.time() + 12 * 3600}).encode()).decode().rstrip("=") + ".y"
+provided = []
+api.token_provider = lambda: provided.append(1) or TOKEN
+
+
+def fake_get(url, params=None, headers=None, **kw):
+    if (headers or {}).get("Authorization") != f"Bearer {TOKEN}":
+        return Resp(401, {"error": "unauthorized"})                 # zoals Kinepolis
     calls.append((url.replace(api.OCAPI, ""), params))
     p = dict(params)
     if "siteIds" not in p:
@@ -71,6 +79,13 @@ shows = api.fetch_showings("HO00013277", [], dt.date(2026, 10, 31), dt.date(2026
 sites = [v for k, v in calls[-1][1] if k == "siteIds"]
 assert sorted(sites) == ["KBRU", "KKOR", "SL"], sites
 print("overal -> cinema's:", sorted(sites), "|", len(shows), "voorstellingen")
+
+# sleutel: één keer opgehaald, daarna hergebruikt; vervallen -> 401 -> nieuwe
+assert len(provided) == 1, provided
+api._token["value"] = "oud.eyJleHAiOjk5OTk5OTk5OTl9.z"                # 'geldig' maar geweigerd
+api.fetch_showings("HO00013277", ["KKOR"], dt.date(2026, 10, 31), dt.date(2026, 11, 1))
+assert len(provided) == 2 and api._token["value"] == TOKEN, provided
+print("sleutel: opgehaald", len(provided), "keer, vernieuwd na 401")
 
 # oude en nieuwe links
 assert api.movie_id_from("https://web.kinepolis.be/films/Shaun-Het-Schaap/HO00013277") == "HO00013277"

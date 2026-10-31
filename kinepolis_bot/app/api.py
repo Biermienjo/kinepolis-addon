@@ -10,8 +10,11 @@ https://web.kinepolis.be/order/showtimes/KKOR-164637/seats
 """
 from __future__ import annotations
 
+import base64
 import datetime as dt
+import json
 import re
+import threading
 import secrets
 import string
 import time
@@ -64,15 +67,58 @@ def _correlation_id() -> str:
     return "OCC-" + "".join(secrets.choice(alphabet) for _ in range(33))
 
 
+# Toegangssleutel (anoniem, ±12 uur geldig) die de Kinepolis-site zelf gebruikt.
+# token_provider haalt een nieuwe op (de server laat de browser dat doen).
+token_provider = None
+_token = {"value": "", "exp": 0.0, "retry_at": 0.0}
+_token_lock = threading.Lock()
+
+
+def _jwt_exp(tok: str) -> float:
+    try:
+        payload = tok.split(".")[1]
+        return float(json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))["exp"])
+    except Exception:
+        return time.time() + 3600
+
+
+def api_token(force: bool = False) -> str:
+    """Geldige sleutel (5 min marge), of een nieuwe via token_provider."""
+    with _token_lock:
+        if not force and _token["value"] and time.time() < _token["exp"] - 300:
+            return _token["value"]
+        if token_provider is not None and time.time() >= _token["retry_at"]:
+            tok = token_provider()
+            if not tok:                               # niet gelukt: browser even met rust laten
+                _token["retry_at"] = time.time() + 300
+                print("[sleutel] geen Kinepolis-sleutel kunnen opvangen; opnieuw over 5 min", flush=True)
+            else:
+                _token["retry_at"] = 0.0
+                _token.update(value=tok, exp=_jwt_exp(tok))
+                print(f"[sleutel] nieuwe Kinepolis-sleutel, geldig tot "
+                      f"{dt.datetime.fromtimestamp(_token['exp'], TZ):%H:%M}", flush=True)
+        return _token["value"]
+
+
 def _headers() -> dict:
-    return {"Accept": "application/json", "Origin": SITE, "Referer": SITE + "/",
-            "correlationid": _correlation_id()}
+    h = {"Accept": "application/json", "Origin": SITE, "Referer": SITE + "/",
+         "correlationid": _correlation_id()}
+    if tok := api_token():
+        h["Authorization"] = f"Bearer {tok}"
+    return h
 
 
 def _ocapi(path: str, params: list[tuple[str, str]]) -> dict | None:
     """GET op OCAPI. None = geen voorstellingen (404/204)."""
     r = cffi_requests.get(OCAPI + path, params=params, impersonate="chrome124", timeout=20,
                           headers=_headers())
+    if r.status_code == 401:                       # sleutel vervallen of ontbrak: vernieuwen
+        api_token(force=True)
+        r = cffi_requests.get(OCAPI + path, params=params, impersonate="chrome124", timeout=20,
+                              headers=_headers())
+        if r.status_code == 401:
+            raise RuntimeError("Kinepolis weigert de toegang (401): kon geen geldige sleutel "
+                               "ophalen via de browser.")
     if r.status_code in (204, 404):
         return None
     r.raise_for_status()
@@ -205,10 +251,7 @@ def filter_showings(showings: list[Showing], cinemas: set[str], date_from: dt.da
 def free_seats(showing_id: str) -> int | None:
     """Aantal vrije plaatsen (incl. cosy/rolstoel, dus een bovengrens). None = onbekend."""
     try:
-        r = cffi_requests.get(f"{OCAPI}showtimes/{showing_id}/seat-availability",
-                              impersonate="chrome124", timeout=20, headers=_headers())
-        if r.status_code != 200:
-            return None
-        return int(r.json()["summary"]["availableCount"])
+        data = _ocapi(f"showtimes/{showing_id}/seat-availability", [])
+        return int(data["summary"]["availableCount"]) if data else None
     except Exception:
         return None
