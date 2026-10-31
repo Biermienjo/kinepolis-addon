@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0e1116">
+  <title>Kinepolis</title>
+  <link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">🎬 <span>Kinepolis</span></div>
+    <div class="films" id="films"></div>
+  </header>
+
+  <main>
+    <!-- Zoeken -->
+    <section id="view-search" class="view active">
+      <div class="card" id="film-add" hidden>
+        <label class="lbl" for="film-url">Welke film?</label>
+        <div class="row">
+          <input id="film-url" type="search" placeholder="Naam of kinepolis.be-link" autocomplete="off" enterkeyhint="search">
+          <button class="btn primary" id="film-save">Zoek</button>
+        </div>
+        <p class="hint">Typ de naam, ook van een film die nog niet op Kinepolis staat: de scanner wacht tot hij verschijnt.</p>
+        <div id="film-matches"></div>
+      </div>
+
+      <div id="search-form" hidden>
+        <div class="card">
+          <div class="lbl">Personen</div>
+          <div class="stepper">
+            <button class="round" data-step="-1" aria-label="Minder">−</button>
+            <output id="persons">2</output>
+            <button class="round" data-step="1" aria-label="Meer">+</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="lbl">Locatie</div>
+          <div class="chips" id="cinemas"><span class="hint">Laden…</span></div>
+        </div>
+
+        <div class="card">
+          <div class="lbl">Wanneer</div>
+          <div class="chips" id="quick-dates"></div>
+          <div class="row dates">
+            <label>van <input type="date" id="date-from"></label>
+            <label>tot <input type="date" id="date-to"></label>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="lbl">Uur</div>
+          <div class="chips" id="times"></div>
+        </div>
+
+        <div class="card">
+          <div class="lbl">Formaat</div>
+          <div class="chips" id="formats"></div>
+        </div>
+
+        <div class="actions">
+          <button class="btn ghost big" id="do-search">🔎 Zoek nu</button>
+          <button class="btn primary big" id="do-scan">🔔 Start scanner</button>
+        </div>
+        <p class="hint">De scanner blijft lopen en stelt je de beste plaatsen voor (Telegram en hier), ook voor films die nog niet in verkoop zijn.</p>
+      </div>
+
+      <div id="results"></div>
+    </section>
+
+    <!-- Boeking -->
+    <section id="view-book" class="view">
+      <div id="book"></div>
+    </section>
+
+    <!-- Live browser -->
+    <section id="view-live" class="view">
+      <div class="live-bar">
+        <span>Live browser op de Pi: hier rond je af en betaal je.</span>
+        <a class="btn ghost small" id="live-full" target="_blank" rel="noopener">Volledig scherm</a>
+      </div>
+      <iframe id="live" title="Live browser"></iframe>
+    </section>
+
+    <!-- Scanners -->
+    <section id="view-scan" class="view">
+      <div class="scan-head"><h2>Scanners <span id="scan-count"></span></h2>
+        <button class="btn primary small" id="scan-new">＋ Nieuwe scanner</button></div>
+      <div class="card warn-card" id="tg-warn" hidden>Telegram is niet ingesteld: voorstellen verschijnen alleen hier in de app
+        (Boeking). Vul <b>telegram_token</b> en <b>telegram_chat_id</b> in bij de add-on om ze op je gsm te krijgen.</div>
+      <div id="watches"></div>
+      <h2>Meldingen</h2>
+      <div id="events"></div>
+    </section>
+  </main>
+
+  <nav class="tabs">
+    <button data-view="search" class="active"><span>🔎</span>Zoeken</button>
+    <button data-view="scan"><span>🔔</span>Scanners</button>
+    <button data-view="book"><span>💺</span>Boeking<i id="book-dot" hidden></i></button>
+    <button data-view="live"><span>🖥️</span>Live</button>
+  </nav>
+
+  <div id="toast" role="status"></div>
+  <script src="static/app.js"></script>
+</body>
+</html>
