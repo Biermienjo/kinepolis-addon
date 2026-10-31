@@ -8,6 +8,8 @@ zone-nummering in de API maakt niet uit.
 """
 from __future__ import annotations
 
+import re
+
 from seats import Seat, find_best_group
 
 SEAT_SELECTOR = "svg.v-seat-picker-seat"
@@ -61,10 +63,50 @@ def pick_best(page, persons: int, fmt: str = "default") -> list[Seat] | None:
     return find_best_group(read_seats(page), persons, fmt)
 
 
-def click_seats(page, labels: list[str]) -> bool:
-    """Klikt de stoelen (aria-labels) aan en controleert of ze echt geselecteerd zijn."""
-    for label in labels:
-        page.locator(f'{SEAT_SELECTOR}[aria-label="{label}"]').click()
-    return all(
-        page.locator(f'{SEAT_SELECTOR}[aria-label="{label}"]').get_attribute("aria-pressed") == "true"
-        for label in labels)
+# Stand van stoelen, gezocht op hun code ("0617"): het label kan veranderen na een klik.
+_STATE_JS = """([sel, codes]) => codes.map(code => {
+  const el = [...document.querySelectorAll(sel)]
+    .find(e => (e.getAttribute('aria-label') || '').trim().endsWith(code));
+  if (!el) return {code, found: false};
+  return {code, found: true, label: el.getAttribute('aria-label') || '',
+          pressed: el.getAttribute('aria-pressed'), cls: el.getAttribute('class') || '',
+          disabled: el.getAttribute('aria-disabled'),
+          html: el.cloneNode(false).outerHTML.slice(0, 500)};
+})"""
+
+
+def seat_code(label: str) -> str:
+    m = re.search(r"(\d{4})\s*$", label)
+    return m[1] if m else label
+
+
+def seat_states(page, labels: list[str]) -> list[dict]:
+    return page.evaluate(_STATE_JS, [SEAT_SELECTOR, [seat_code(label) for label in labels]])
+
+
+def is_selected(state: dict, original_label: str) -> bool:
+    """Gekozen? aria-pressed, een class met 'selected', of een ander label dan voorheen."""
+    if not state.get("found"):
+        return False
+    if state.get("pressed") == "true" or re.search(r"selected|chosen", state.get("cls", ""), re.I):
+        return True
+    label = state.get("label", "")
+    return label != original_label and not label.startswith("Niet beschikbare")
+
+
+def is_free(state: dict) -> bool:
+    """Nog te krijgen (vrij of al door ons gekozen)?"""
+    return (state.get("found") and state.get("disabled") != "true"
+            and "--unavailable" not in state.get("cls", "")
+            and not state.get("label", "").startswith("Niet beschikbare"))
+
+
+def click_seats(page, labels: list[str]) -> tuple[bool, list[dict]]:
+    """Klikt de stoelen aan (die nog niet gekozen zijn) en kijkt of ze gekozen zijn."""
+    before = seat_states(page, labels)
+    for label, state in zip(labels, before):
+        if not is_selected(state, label):
+            page.locator(f'{SEAT_SELECTOR}[aria-label$="{seat_code(label)}"]').first.click(timeout=10_000)
+            page.wait_for_timeout(300)
+    after = seat_states(page, labels)
+    return all(is_selected(s, label) for s, label in zip(after, labels)), after

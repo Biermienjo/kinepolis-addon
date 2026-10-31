@@ -39,9 +39,17 @@ def build_html(seed: int = 3) -> str:
                 f'aria-disabled="{str(taken).lower()}"><rect width="45" height="45"/></svg>')
     return f"""<html><body><svg viewBox="0 0 1000 800" width="1000" height="800">
     <g transform="translate(20, 30)">{''.join(seats)}</g></svg>
-    <script>document.querySelectorAll('svg.v-seat-picker-seat--available').forEach(e =>
-      e.addEventListener('click', () => e.setAttribute('aria-pressed',
-        e.getAttribute('aria-pressed') === 'true' ? 'false' : 'true')))</script></body></html>"""
+    <script>
+    // Zoals (waarschijnlijk) de echte site: gekozen = class --selected + ander label, aria-pressed blijft.
+    document.querySelectorAll('svg.v-seat-picker-seat--available').forEach(e => {{
+      const code = e.getAttribute('aria-label').slice(-4), label = e.getAttribute('aria-label');
+      e.addEventListener('click', () => {{
+        const on = !e.classList.contains('v-seat-picker-seat--selected');
+        e.classList.toggle('v-seat-picker-seat--selected', on);
+        e.classList.toggle('v-seat-picker-seat--available', !on);
+        e.setAttribute('aria-label', on ? 'Geselecteerde zitplaats ' + code : label);
+      }});
+    }});</script></body></html>"""
 
 
 if __name__ == "__main__":
@@ -65,8 +73,10 @@ if __name__ == "__main__":
             assert len({s.row for s in g}) == 1
             labels = [s.label for s in g]
             print(n, [l.split()[-1] for l in labels], "rij", g[0].row + 1)
-            assert picker.click_seats(page, labels), "stoelen niet geselecteerd"
+            ok, states = picker.click_seats(page, labels)
+            assert ok, states
+            assert picker.click_seats(page, labels)[0], "tweede keer niet uitzetten"
             for l in labels:                                    # terugklikken voor de volgende ronde
-                page.locator(f'{picker.SEAT_SELECTOR}[aria-label="{l}"]').click()
+                page.locator(f'{picker.SEAT_SELECTOR}[aria-label$="{picker.seat_code(l)}"]').click()
         b.close()
     print("OK")

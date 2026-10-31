@@ -12,7 +12,7 @@ from test_picker import build_html
 
 SEATS_HTML = build_html().replace("</body>", """
 <button id="go" disabled onclick="
-  const sel = [...document.querySelectorAll('[aria-pressed=true]')].length;
+  const sel = document.querySelectorAll('.v-seat-picker-seat--selected').length;
   location.href = '/order/showtimes/KKOR-1/tickets?n=' + sel">Tickets selecteren</button>
 <script>setTimeout(() => document.getElementById('go').disabled = false, 2000)</script>
 </body>""")

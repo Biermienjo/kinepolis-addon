@@ -401,8 +401,10 @@ const ago = (s) => s == null ? "nog niet" : s < 90 ? `${s} s geleden` : `${Math.
 function renderScanners() {
   $("#tg-warn").hidden = S.telegram && !S.telegramError;
   if (S.telegram && S.telegramError) {
-    $("#tg-warn").innerHTML = `Telegram werkt niet: <b>${h(S.telegramError)}</b>.<br>
-      Kijk <b>telegram_token</b> na bij de add-on (precies zoals BotFather hem gaf, bv. 123456789:AAH…) en herstart.`;
+    const tokenFout = /not found|unauthorized/i.test(S.telegramError);
+    $("#tg-warn").innerHTML = `Telegram gaf een fout: <b>${h(S.telegramError)}</b>.` + (tokenFout
+      ? `<br>Kijk <b>telegram_token</b> na bij de add-on (precies zoals BotFather hem gaf, bv. 123456789:AAH…) en herstart.`
+      : "");
   }
   $("#scan-count").textContent = S.watches.length ? `${S.watches.filter((w) => !w.paused).length} actief` : "";
   $("#watches").innerHTML = S.watches.length ? S.watches.map((w) => `<div class="card scanner ${w.paused ? "paused" : ""}">

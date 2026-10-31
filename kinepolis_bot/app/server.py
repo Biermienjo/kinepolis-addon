@@ -226,7 +226,8 @@ class Engine:
 
     def _clear_buttons(self, note: str):
         if self._tg_msg:
-            self.notifier.tg("editMessageReplyMarkup", message_id=self._tg_msg,
+            self.notifier.tg("editMessageReplyMarkup", chat_id=self.notifier.chat_id,
+                             message_id=self._tg_msg,
                              reply_markup=json.dumps({"inline_keyboard": [[
                                  {"text": note, "callback_data": "noop"}]]}))
             self._tg_msg = None

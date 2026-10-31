@@ -296,9 +296,18 @@ class Booker:
             return self.screenshot()
 
     def still_free(self, labels: list[str]) -> bool:
-        # Een verkochte stoel krijgt een ander label ("Niet beschikbare zitplaats ..").
-        free = {s["label"]: s["free"] for s in picker.read_map(self.page)}
-        return all(free.get(label) for label in labels)
+        # Op stoelcode: een verkochte stoel krijgt een ander label ("Niet beschikbare zitplaats ..").
+        return all(picker.is_free(s) for s in picker.seat_states(self.page, labels))
+
+    def _tickets_button_ready(self, timeout_ms: int = 6000) -> bool:
+        try:
+            btn = self.page.get_by_role("button", name=TICKETS_BUTTON)
+            btn.wait_for(state="visible", timeout=timeout_ms)
+            self.page.wait_for_function("b => !b.disabled && b.getAttribute('aria-disabled') !== 'true'",
+                                        arg=btn.element_handle(), timeout=timeout_ms)
+            return True
+        except (PwTimeout, PwError):
+            return False
 
     def checkout(self, labels: list[str], ticket_label: str = "Volwassene") -> BookingResult:
         """Klikt de stoelen aan en gaat door tot na de ticketkeuze. Nooit betalen."""
@@ -309,7 +318,14 @@ class Booker:
             return self._done("needs_human", "De zaal is niet meer open in de browser.", labels)
         if not self.still_free(labels):
             return self._done("taken", "Iemand was sneller: niet alle stoelen zijn nog vrij.", labels)
-        if not picker.click_seats(page, labels):
+        ok, states = picker.click_seats(page, labels)
+        if not ok:
+            # Toont de site 'gekozen' anders? Dan wordt 'Tickets selecteren' toch actief.
+            print("[stoelen] na klikken niet herkend als gekozen:", flush=True)
+            for s in states:
+                print(f"[stoelen]   {s.get('html') or s}", flush=True)
+            ok = self._tickets_button_ready()
+        if not ok:
             return self._done("needs_human", "Stoelen aanklikken lukte niet. "
                                              "Kies ze in de live browser.", labels)
 
