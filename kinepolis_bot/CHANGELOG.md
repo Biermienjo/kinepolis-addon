@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.2
+- Fix "kon geen geldige sleutel ophalen": de browser zoekt de Kinepolis-sleutel nu ook op een
+  filmpagina, in de opslag van de pagina en in de antwoorden van Kinepolis.
+- Meer varianten van de cookieknop herkend.
+- Lukt het toch niet, dan staat in het log precies wat de browser zag (`[sleutel] …`).
+
 ## 0.6.1
 - Bijwerken vanuit de app: onderaan **Scanners** zie je je versie en een knop **Bijwerken**.
 - De add-on laat Home Assistant elk uur naar updates kijken (met *Auto update* gaat het vanzelf).

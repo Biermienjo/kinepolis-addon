@@ -8,6 +8,8 @@ Turnstile op de stoelpagina. NIET gezien: de ticketpagina; die stap zoekt op tek
 """
 from __future__ import annotations
 
+import base64
+import json
 import os
 import re
 import time
@@ -23,7 +25,30 @@ from seats import find_best_group
 TICKETS_BUTTON = re.compile(r"tickets selecteren", re.I)
 CONTINUE_BUTTON = re.compile(r"^\s*(doorgaan|ga verder|verder|volgende|bevestig\w*)\b", re.I)
 PAY_WORDS = re.compile(r"betaal|betalen|pay", re.I)
-COOKIE_BUTTON = re.compile(r"alles accepteren|accepteer alle|alle cookies accepteren|akkoord", re.I)
+COOKIE_BUTTON = re.compile(r"alles accepteren|accepteer alle|alle cookies accepteren|akkoord|"
+                           r"alles toestaan|alle toestaan|accepteren|accept all|tout accepter", re.I)
+_JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")
+
+
+def _is_kinepolis_jwt(tok: str) -> bool:
+    """Sleutel van de Kinepolis-API (uitgegeven door moviexchange, rol CXM_...)?"""
+    try:
+        part = tok.split(".")[1]
+        payload = json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
+        return "moviexchange" in str(payload.get("iss", "")) or str(payload.get("role", "")).startswith("CXM")
+    except Exception:
+        return False
+
+
+def _find_jwt(text: str) -> str | None:
+    return next((m for m in _JWT_RE.findall(text or "") if _is_kinepolis_jwt(m)), None)
+
+
+def _safe_auth(r) -> bool:
+    try:
+        return bool(r.all_headers().get("authorization"))
+    except PwError:
+        return False
 
 # Zoekt bij het tickettype (bv. "Volwassene") de +-knop in hetzelfde blok en klikt n keer.
 _ADD_TICKETS_JS = """([label, n]) => {
@@ -132,32 +157,84 @@ class Booker:
         return self._done("choose", "Beste stoelen gekozen. Pas aan of zet ze in je mandje.",
                           [s.label for s in group], seat_map)
 
-    def api_token(self, urls: list[str], wait_s: int = 25) -> str | None:
+    def api_token(self, urls: list[str], wait_s: int = 20) -> str | None:
         """Toegangssleutel (Bearer) die de Kinepolis-site zelf gebruikt voor zijn API.
 
-        Opent een Kinepolis-pagina in een apart tabblad en leest de Authorization-header
-        van de eerste aanvraag naar digital-api.kinepolis.be.
+        Opent Kinepolis-pagina's in een apart tabblad en zoekt de sleutel in:
+        de Authorization-header van aanvragen naar digital-api, de opslag van de pagina
+        (local/sessionStorage) en de antwoorden van Kinepolis. Lukt het niet op de
+        filmlijst, dan ook op de eerste filmpagina (daar vraagt de site voorstellingen op).
         """
         page = self.context.new_page()
-        seen = []
-        page.on("request", lambda r: seen.append(r) if "digital-api.kinepolis.be" in r.url else None)
+        requests_seen, responses = [], []
+
+        def on_request(r):
+            if "digital-api.kinepolis.be" in r.url:
+                requests_seen.append(r)
+
+        def on_response(r):
+            if "kinepolis" in r.url and "json" in (r.headers.get("content-type") or ""):
+                responses.append(r)
+
+        page.on("request", on_request)
+        page.on("response", on_response)
+        checked: set = set()
+
+        def look() -> str | None:
+            for r in list(requests_seen):
+                try:
+                    auth = r.all_headers().get("authorization", "")
+                except PwError:
+                    continue
+                if auth.lower().startswith("bearer ") and _is_kinepolis_jwt(auth[7:].strip()):
+                    return auth[7:].strip()
+            try:
+                stored = page.evaluate("() => [localStorage, sessionStorage].flatMap(s =>"
+                                       " Object.keys(s).map(k => s.getItem(k) || ''))")
+            except PwError:
+                stored = []
+            for text in stored:
+                if tok := _find_jwt(text):
+                    return tok
+            for r in list(responses):
+                if r in checked:
+                    continue
+                checked.add(r)
+                try:
+                    if tok := _find_jwt(r.text()[:500_000]):
+                        return tok
+                except PwError:
+                    continue
+            return None
+
         try:
-            for url in urls:
+            todo, opened, added_film = list(urls), 0, False
+            while todo and opened < 4:                     # nooit eindeloos pagina's openen
+                url = todo.pop(0)
+                opened += 1
                 try:
                     page.goto(url, wait_until="domcontentloaded", timeout=45_000)
+                    page.wait_for_timeout(1500)
                     self._accept_cookies_on(page)
                     deadline = time.time() + wait_s
                     while time.time() < deadline:
-                        for r in list(seen):
-                            try:
-                                auth = r.all_headers().get("authorization", "")
-                            except PwError:
-                                continue
-                            if auth.lower().startswith("bearer "):
-                                return auth[7:].strip()
+                        if tok := look():
+                            return tok
                         page.wait_for_timeout(500)
+                    # Nog niets: één keer de eerste filmpagina openen (daar vraagt de site
+                    # voorstellingen op, met sleutel).
+                    if not added_film:
+                        links = page.evaluate(_CATALOG_JS)
+                        film = next((a["href"] for a in links if _FILM_RE.search(a["href"])), None)
+                        if film:
+                            todo.insert(0, film)
+                            added_film = True
                 except PwError as e:
                     print(f"[sleutel] {url}: {e}", flush=True)
+            auth = sum(1 for r in requests_seen if _safe_auth(r))
+            print(f"[sleutel] niet gevonden: {len(requests_seen)} aanvragen naar digital-api gezien "
+                  f"({auth} met sleutel), {len(responses)} JSON-antwoorden, laatste pagina {page.url}",
+                  flush=True)
         finally:
             page.close()
         return None

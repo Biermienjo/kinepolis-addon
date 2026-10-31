@@ -55,17 +55,41 @@ if __name__ == "__main__":
         assert res.status == "in_cart", res.status
         assert "customer-details?q=2" in b.page.url, b.page.url   # 2x Volwassene, niet betaald
 
-        # sleutel opvangen: de site roept digital-api aan met een Authorization-header
-        b.context.route("**/films", lambda r: r.fulfill(status=200, content_type="text/html", body=
-            "<html><body><script>fetch('https://digital-api.kinepolis.be/ocapi/v1/films',"
-            "{headers:{Authorization:'Bearer abc.def.ghi'}})</script></body></html>"))
+        # sleutel opvangen. Echte vorm: JWT van moviexchange met rol CXM_JourneyViewer.
+        import base64 as b64, json as js
+        enc = lambda d: b64.urlsafe_b64encode(js.dumps(d).encode()).decode().rstrip("=")
+        jwt = (enc({"alg": "RS256"}) + "." +
+               enc({"iss": "https://auth.moviexchange.com/", "role": "CXM_JourneyViewer", "exp": 9999999999})
+               + ".handtekeningxyz123")
         b.context.route(re.compile(r"https://digital-api\.kinepolis\.be/.*"),
                         lambda r: r.fulfill(status=200, content_type="application/json", body="[]",
                                             headers={"access-control-allow-origin": "*",
                                                      "access-control-allow-headers": "*"}))
-        tok = b.api_token(["https://web.kinepolis.be/films"], wait_s=10)
-        print("sleutel:", tok)
-        assert tok == "abc.def.ghi", tok
+
+        # a) filmlijst doet niets; pas de filmpagina gebruikt de sleutel (in een header)
+        b.context.route("**/films", lambda r: r.fulfill(status=200, content_type="text/html",
+            body='<a href="/films/Shaun-Het-Schaap/HO00013277">Shaun</a>'))
+        b.context.route("**/films/Shaun-Het-Schaap/HO00013277", lambda r: r.fulfill(
+            status=200, content_type="text/html", body="<script>fetch('https://digital-api.kinepolis.be/"
+            f"ocapi/v1/x',{{headers:{{Authorization:'Bearer {jwt}'}}}})</script>"))
+        tok = b.api_token(["https://web.kinepolis.be/films"], wait_s=4)
+        assert tok == jwt, tok
+        print("sleutel via filmpagina (header): ok")
+
+        # b) sleutel staat alleen in sessionStorage
+        b.context.route("**/films/Shaun-Het-Schaap/HO00013277", lambda r: r.fulfill(
+            status=200, content_type="text/html",
+            body=f"<script>sessionStorage.setItem('auth', JSON.stringify({{token:'{jwt}'}}))</script>"))
+        tok = b.api_token(["https://web.kinepolis.be/films"], wait_s=4)
+        assert tok == jwt, tok
+        print("sleutel via opslag: ok")
+
+        # c) geen sleutel te vinden -> None, en geen eindeloos doorklikken
+        b.context.route("**/films/Shaun-Het-Schaap/HO00013277", lambda r: r.fulfill(
+            status=200, content_type="text/html", body='<a href="/films/Andere/HO00000001">x</a>'))
+        t0 = __import__("time").time()
+        assert b.api_token(["https://web.kinepolis.be/films"], wait_s=2) is None
+        print(f"geen sleutel: None na {__import__('time').time() - t0:.0f} s")
 
         res = b.open_seats(url, 40)
         print(res.status, "|", res.message)
