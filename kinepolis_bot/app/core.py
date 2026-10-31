@@ -208,6 +208,42 @@ class Store:
             self.save()
 
 
+class Supervisor:
+    """Praat met Home Assistant over deze add-on zelf: versie en bijwerken."""
+
+    base = "http://supervisor"
+
+    def __init__(self):
+        self.token = os.environ.get("SUPERVISOR_TOKEN", "")
+
+    def _call(self, method: str, path: str, timeout: int = 60) -> dict:
+        r = requests.request(method, self.base + path, timeout=timeout,
+                             headers={"Authorization": f"Bearer {self.token}"})
+        r.raise_for_status()
+        return (r.json() or {}).get("data") or {}
+
+    def version(self) -> dict:
+        """{'installed', 'latest', 'update'}; leeg buiten Home Assistant."""
+        if not self.token:
+            return {}
+        info = self._call("GET", "/addons/self/info", 15)
+        return {"installed": info.get("version"), "latest": info.get("version_latest"),
+                "update": bool(info.get("update_available")), "slug": info.get("slug")}
+
+    def check(self) -> dict:
+        """Laat Home Assistant opnieuw op GitHub kijken en geef de versies terug."""
+        if not self.token:
+            return {}
+        self._call("POST", "/store/reload", 120)
+        return self.version()
+
+    def update(self) -> None:
+        """Start het bijwerken. De add-on herstart daarbij zichzelf."""
+        slug = self.version().get("slug")
+        if slug:
+            self._call("POST", f"/store/addons/{slug}/update", 900)
+
+
 class Notifier:
     """Meldingen via de Home Assistant-app (push) en/of Telegram. Beide optioneel."""
 

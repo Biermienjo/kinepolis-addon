@@ -51,7 +51,7 @@ function show(view) {
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + view));
   document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   if (view === "live") loadLive();
-  if (view === "scan") refreshScanners();
+  if (view === "scan") { refreshScanners(); renderVersion(); }
   window.scrollTo(0, 0);
 }
 document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => show(b.dataset.view)));
@@ -431,6 +431,29 @@ function renderScanners() {
     return `<div class="event"><time>${p.day}/${p.month} ${p.hour}:${p.minute}</time><div>${h(e.text)}</div></div>`;
   }).join("") : `<div class="empty">Nog geen meldingen.</div>`;
 }
+// ---------- versie en bijwerken ----------
+async function renderVersion(check = false) {
+  const box = $("#version");
+  let v;
+  try { v = await call("api/version" + (check ? "?check=1" : "")); } catch (e) { v = { error: e.message }; }
+  if (v.error || !v.installed) {
+    box.innerHTML = `<span class="hint">${h(v.error || "Versie onbekend (niet in Home Assistant)")}</span>`;
+    return;
+  }
+  box.innerHTML = v.update
+    ? `<div><b>Nieuwe versie ${h(v.latest)}</b><div class="hint">Je hebt ${h(v.installed)}.</div></div>
+       <button class="btn primary small" id="do-update">⬆️ Bijwerken</button>`
+    : `<div>Versie ${h(v.installed)}<div class="hint">Je hebt de nieuwste versie.</div></div>
+       <button class="btn ghost small" id="check-update">Controleer</button>`;
+  $("#check-update")?.addEventListener("click", (e) => busy(e.currentTarget, () => renderVersion(true)));
+  $("#do-update")?.addEventListener("click", (e) => busy(e.currentTarget, async () => {
+    const r = await call("api/update", { method: "POST" });
+    if (!r.started) return renderVersion();
+    box.innerHTML = `<div><b>Bijwerken naar ${h(r.latest)}…</b><div class="hint">De app herstart zo meteen.
+      Herlaad deze pagina over een paar minuten.</div></div><span class="spin"></span>`;
+  }));
+}
+
 async function refreshScanners() {
   try {
     const before = S.movieId, films = JSON.stringify(S.films);

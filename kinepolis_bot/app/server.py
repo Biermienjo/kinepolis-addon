@@ -59,6 +59,7 @@ class Engine:
 
     def start_background(self):
         threading.Thread(target=self._scan_loop, daemon=True, name="scanner").start()
+        threading.Thread(target=self._update_loop, daemon=True, name="updates").start()
         threading.Thread(target=self._catalog_loop, daemon=True, name="catalogus").start()
         if self.notifier.token:
             threading.Thread(target=self._telegram_loop, daemon=True, name="telegram").start()
@@ -237,6 +238,19 @@ class Engine:
                 self.shot = shot
                 self.update(has_shot=True)
         self.tasks.put((grab, ()))
+
+    # ---------- updates ----------
+    def _update_loop(self):
+        """Elk uur Home Assistant op GitHub laten kijken; met 'Auto update' gaat het dan vanzelf."""
+        sup = core.Supervisor()
+        while sup.token:
+            time.sleep(3600)
+            try:
+                v = sup.check()
+                if v.get("update"):
+                    print(f"[update] nieuwe versie {v['latest']} beschikbaar", flush=True)
+            except Exception as e:
+                print("[update]", e, flush=True)
 
     # ---------- Kinepolis-sleutel ----------
     def fetch_api_token(self, timeout: float = 120) -> str | None:
@@ -641,6 +655,25 @@ def make_app(engine: Engine, store: core.Store) -> web.Application:
         engine.update(state="idle", message="", seat_map=[], seats=[], suggested=[], showing=None,
                       proposal=False)
         return web.json_response(engine.snapshot())
+
+    @routes.get("/api/version")
+    async def version(request):
+        sup = core.Supervisor()
+        check = request.query.get("check") == "1"
+        try:
+            return web.json_response(await blocking(sup.check if check else sup.version))
+        except Exception as e:
+            return web.json_response({"error": f"Kon niet bij Home Assistant: {e}"})
+
+    @routes.post("/api/update")
+    async def do_update(_):
+        sup = core.Supervisor()
+        v = await blocking(sup.check)
+        if not v.get("update"):
+            return web.json_response({"started": False, **v})
+        # Op de achtergrond: Home Assistant stopt deze add-on tijdens het bijwerken.
+        threading.Thread(target=sup.update, daemon=True).start()
+        return web.json_response({"started": True, **v})
 
     @routes.get("/api/job")
     async def job(_):
