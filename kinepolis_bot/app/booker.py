@@ -31,6 +31,37 @@ MORE_BUTTON = re.compile(r"(toon|laad|bekijk|meer) (meer|films)|load more|show m
 _JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")
 
 
+_TITLE_KEYS = ("title", "name", "filmTitle", "displayName", "originalTitle")
+
+
+def _harvest_json(data, films: dict[str, dict], depth: int = 0):
+    """Zoek in JSON naar objecten met een HO-code en een titel (de filmlijst van de site)."""
+    if depth > 12:
+        return
+    if isinstance(data, list):
+        for item in data:
+            _harvest_json(item, films, depth + 1)
+        return
+    if not isinstance(data, dict):
+        return
+    ho = next((v for v in data.values() if isinstance(v, str) and re.fullmatch(r"HO\d{8}", v)), None)
+    title = None
+    for key in _TITLE_KEYS:
+        v = data.get(key)
+        if isinstance(v, dict):
+            v = v.get("text")
+        if isinstance(v, str) and len(v.strip()) > 1:
+            title = v.strip()
+            break
+    if ho and title and ho not in films:
+        slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+        films[ho] = {"id": ho, "slug": slug, "title": title[:80],
+                     "url": f"https://www.kinepolis.be/nl/films/{slug}/{ho}/"}
+    for v in data.values():
+        if isinstance(v, (dict, list)):
+            _harvest_json(v, films, depth + 1)
+
+
 def _is_kinepolis_jwt(tok: str) -> bool:
     """Sleutel van de Kinepolis-API (uitgegeven door moviexchange, rol CXM_...)?"""
     try:
@@ -241,17 +272,30 @@ class Booker:
         return None
 
     def catalog(self, urls: list[str], stop=None) -> list[dict]:
-        """Films die op deze Kinepolis-pagina's gelinkt staan: [{id, slug, title, url}].
+        """Films op deze Kinepolis-pagina's: [{id, slug, title, url}].
 
+        Uit de links op de pagina én uit de filmdata (JSON) die de pagina binnenkrijgt.
         Gebruikt een apart tabblad, zodat een open stoelkeuze niet verstoord wordt.
+        Levert een pagina niets op, dan bewaren we een screenshot (last_catalog_shot).
         """
         films: dict[str, dict] = {}
         page = self.context.new_page()
+        responses = []
+        page.on("response", lambda r: responses.append(r)
+                if "kinepolis" in r.url and "json" in (r.headers.get("content-type") or "") else None)
         try:
             for url in urls:
+                responses.clear()
+                before_count = len(films)
                 try:
                     page.goto(url, wait_until="domcontentloaded", timeout=45_000)
+                    page.wait_for_timeout(1500)
                     self._accept_cookies_on(page)
+                    try:                                       # wachten tot er films te zien zijn
+                        page.wait_for_selector('a[href*="/films/"], a[href*="/movies/detail/"]',
+                                               timeout=20_000)
+                    except PwTimeout:
+                        pass
                     try:
                         page.wait_for_load_state("networkidle", timeout=10_000)
                     except PwTimeout:
@@ -273,14 +317,38 @@ class Booker:
                         if still >= 3:                           # 3x niets nieuws: einde lijst
                             break
                     self._collect_films(page, films)
-                    print(f"[catalogus] {url}: {len(films)} films tot nu toe", flush=True)
+                    for r in list(responses):                   # filmdata in JSON
+                        try:
+                            _harvest_json(r.json(), films)
+                        except Exception:
+                            continue
+                    found = len(films) - before_count
+                    print(f"[catalogus] {url}: {found} films op deze pagina, {len(films)} in totaal",
+                          flush=True)
+                    if found == 0:
+                        self._catalog_diagnose(page, url)
                     if stop and stop(list(films.values())):      # gevonden: klaar
                         break
                 except PwError as e:
                     print(f"[catalogus] {url}: {e}", flush=True)
+                    self._catalog_diagnose(page, url)
         finally:
             page.close()
         return list(films.values())
+
+    last_catalog_shot: bytes | None = None
+    last_catalog_note: str = ""
+
+    def _catalog_diagnose(self, page, url: str):
+        """Wat zag de browser? Titel + begin van de tekst in het log, screenshot voor de app."""
+        try:
+            title = page.title()
+            text = " ".join(page.evaluate("document.body ? document.body.innerText : ''").split())[:200]
+            self.last_catalog_shot = page.screenshot(full_page=False)
+            self.last_catalog_note = f"{url} → {page.url} | titel: {title!r}"
+            print(f"[catalogus] niets gevonden op {page.url}; titel {title!r}; tekst: {text!r}", flush=True)
+        except PwError as e:
+            print(f"[catalogus] kon pagina niet bekijken: {e}", flush=True)
 
     @staticmethod
     def _collect_films(page, films: dict[str, dict]):

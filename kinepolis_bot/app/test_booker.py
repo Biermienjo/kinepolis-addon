@@ -111,6 +111,28 @@ if __name__ == "__main__":
         print(f"catalogus: {len(found)} films, 'dune part 3' ->", [(h["id"], h["title"]) for h in hits])
         assert len(found) == 60 and hits and hits[0]["id"] == "HO00013472", (len(found), hits)
 
+        # e) geen links, alleen filmdata (JSON) die de pagina ophaalt
+        b.context.route("https://www.kinepolis.be/nl/films/", lambda r: r.fulfill(
+            status=200, content_type="text/html", body="<html><body><div id=app></div><script>"
+            "fetch('https://cms-api-web.kinepolis.be/api/films').then(r=>r.json())</script></body></html>"))
+        b.context.route("https://cms-api-web.kinepolis.be/api/films", lambda r: r.fulfill(
+            status=200, content_type="application/json", headers={"access-control-allow-origin": "*"},
+            body='{"items":[{"film":{"id":"HO00013472","title":{"text":"Dune Part Three"}}},'
+                 '{"id":"HO00013277","name":"Shaun Het Schaap"}]}'))
+        found = b.catalog(["https://www.kinepolis.be/nl/films/"])
+        hits = core.match_films(found, "dune part 3")
+        assert hits and hits[0]["id"] == "HO00013472", found
+        print("filmdata (JSON):", [(f["id"], f["title"]) for f in found])
+
+        # f) controlepagina zonder films -> screenshot + titel in het log
+        b.context.route("https://www.kinepolis.be/nl/films/", lambda r: r.fulfill(
+            status=200, content_type="text/html",
+            body="<html><head><title>Even geduld...</title></head><body>Controle bezig</body></html>"))
+        b.last_catalog_shot = None
+        assert b.catalog(["https://www.kinepolis.be/nl/films/"]) == []
+        assert b.last_catalog_shot and "Even geduld" in b.last_catalog_note, b.last_catalog_note
+        print("diagnose:", b.last_catalog_note)
+
         res = b.open_seats(url, 40)
         print(res.status, "|", res.message)
         assert res.status == "no_seats"

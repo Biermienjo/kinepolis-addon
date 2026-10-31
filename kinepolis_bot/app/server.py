@@ -561,6 +561,8 @@ def make_app(engine: Engine, store: core.Store) -> web.Application:
                                   "catalog_ago": int(time.time() - engine.catalog_status["last"])
                                   if engine.catalog_status.get("last") else None,
                                   "catalog_error": engine.catalog_status.get("error", ""),
+                                  "catalog_shot": bool(engine._booker and engine._booker.last_catalog_shot),
+                                  "catalog_note": engine._booker.last_catalog_note if engine._booker else "",
                                   "catalog_every": CATALOG_EVERY_S})
 
     def select_film(mid: str, name: str):
@@ -680,6 +682,14 @@ def make_app(engine: Engine, store: core.Store) -> web.Application:
     async def shot_refresh(_):
         engine.refresh_shot()
         return web.json_response({"ok": True})
+
+    @routes.get("/api/catalog-shot")
+    async def catalog_shot(_):
+        b = engine._booker
+        if not b or not b.last_catalog_shot:
+            raise web.HTTPNotFound(text="Nog geen screenshot.")
+        return web.Response(body=b.last_catalog_shot, content_type="image/png",
+                            headers={"Cache-Control": "no-store"})
 
     @routes.get("/api/screenshot")
     async def screenshot(_):

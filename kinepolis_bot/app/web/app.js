@@ -83,6 +83,9 @@ async function filmChosen(r) {
   S.results = null; S.cinemas.clear();
   await loadState(); renderFilms(); renderResults(); loadLocations();
   if (!r.pending) return toast("Film toegevoegd");
+  await loadState();
+  if (S.catalogShot) $("#film-matches").innerHTML = `<p class="hint">Niet gevonden op Kinepolis.
+    <a href="api/catalog-shot" target="_blank" rel="noopener">📷 Wat zag de browser?</a> ${h(S.catalogNote || "")}</p>`;
   toast(r.checked ? "Nog niet op Kinepolis: start een scanner, ik wacht tot hij verschijnt."
                   : "Kon Kinepolis nu niet doorzoeken. Start een scanner, ik blijf kijken.");
 }
@@ -414,7 +417,8 @@ function renderScanners() {
       <div class="d">${h(w.describe)}</div>
       <div class="d small">${w.paused ? "Scant niet." : w.pending
         ? `Kijkt elke ${Math.round(S.catalogEvery / 60)} min of de film op Kinepolis staat · laatst ${ago(S.catalogAgo)}` +
-          (S.catalogError ? `<br><span class="err">${h(S.catalogError)}</span>` : "")
+          (S.catalogError ? `<br><span class="err">${h(S.catalogError)}</span>` : "") +
+          (S.catalogShot ? `<br><a href="api/catalog-shot" target="_blank" rel="noopener">📷 Wat zag de browser?</a>` : "")
         : `Elke ~${S.interval} s · gecontroleerd ${ago(w.ago)}` +
         (w.found != null ? ` · ${w.found} passende voorstelling${w.found === 1 ? "" : "en"}` : "")}
         ${w.error ? `<br><span class="err">${h(w.error)}</span>` : ""}</div>
@@ -469,7 +473,7 @@ async function loadState() {
   const st = await call("api/state");
   Object.assign(S, { films: st.films, movieId: st.movie_id, names: Object.fromEntries(Object.entries(st.names).map(([k, v]) => [k, v])),
     watches: st.watches, events: st.events, formats: st.formats, interval: st.interval, telegram: st.telegram,
-    pending: st.pending, telegramError: st.telegram_error, catalogAgo: st.catalog_ago, catalogError: st.catalog_error, catalogEvery: st.catalog_every });
+    pending: st.pending, telegramError: st.telegram_error, catalogShot: st.catalog_shot, catalogNote: st.catalog_note, catalogAgo: st.catalog_ago, catalogError: st.catalog_error, catalogEvery: st.catalog_every });
 }
 (async () => {
   try {

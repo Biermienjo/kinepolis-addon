@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.5
+- **Films op naam**: de browser wacht tot de filmkaarten verschenen zijn en haalt films ook uit
+  de filmdata (JSON) die de pagina laadt, ook als de kaarten zelf niet zichtbaar worden.
+- Levert een pagina 0 films op, dan bewaart de app **wat de browser zag**: titel en tekst in het
+  log, en een screenshot (link *📷 Wat zag de browser?* bij zoeken en bij een wachtende scanner).
+
 ## 0.6.4
 - **Films op naam sneller en betrouwbaarder**: eerst de volledige filmlijst
   (`kinepolis.be/nl/films/`), stoppen zodra de film gevonden is, en de lijst 10 minuten
