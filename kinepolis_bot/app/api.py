@@ -1,8 +1,12 @@
-"""Kinepolis-API's: programmatie (voorstellingen per film) en OCAPI (vrije plaatsen).
+"""Kinepolis-API's: voorstellingen per film en vrije plaatsen.
 
-Voorstellingen komen uit dezelfde Sessions-API als de odyssey-scanner. De
-voorstellings-id voor de bestelsite is "<complexOperator>-<vistaSessionId>",
-bv. KKOR-164609 -> https://web.kinepolis.be/order/showtimes/KKOR-164609/seats
+Twee bronnen:
+- OCAPI (nieuwe site, web.kinepolis.be): film = HO-code (bv. HO00013277).
+  GET /ocapi/v1/showtimes/by-business-date/first?filmIds=..&siteIds=..  -> eerste speeldag
+  GET /ocapi/v1/showtimes/by-business-date/<datum>?filmIds=..&siteIds=.. -> die dag
+- Programmatie-API (oude site): film = getal (bv. 35300), zoals in de odyssey-scanner.
+De voorstellings-id is in beide gevallen "<cinema>-<sessie>", bv. KKOR-164637 ->
+https://web.kinepolis.be/order/showtimes/KKOR-164637/seats
 """
 from __future__ import annotations
 
@@ -10,6 +14,7 @@ import datetime as dt
 import re
 import secrets
 import string
+import time
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo
 
@@ -19,6 +24,15 @@ TZ = ZoneInfo("Europe/Brussels")
 PROG_API = "https://kinepolisweb-programmation.kinepolis.com/api/"
 OCAPI = "https://digital-api.kinepolis.be/ocapi/v1/"
 WEB = "https://web.kinepolis.be"
+SITE = "https://www.kinepolis.be"
+HO_RE = re.compile(r"HO\d{8}")
+WINDOW_DAYS = 14            # zoveel dagen na de eerste speeldag halen we op
+DAY_CACHE_S = 300           # latere dagen veranderen zelden: 5 min bewaren
+
+# Geleerd uit de antwoorden: cinemacode -> naam, film-id -> titel.
+SITE_NAMES: dict[str, str] = {}
+KNOWN_SITES: set[str] = set()   # uit de instelling 'locaties' (gezet door de server)
+FILM_TITLES: dict[str, str] = {}
 
 
 @dataclass(frozen=True)
@@ -28,6 +42,7 @@ class Showing:
     hall: str
     start: dt.datetime
     attrs: str
+    sold_out: bool = False
 
     @property
     def seats_url(self) -> str:
@@ -35,13 +50,123 @@ class Showing:
 
 
 def movie_id_from(text: str) -> str | None:
-    """Film-id uit een kinepolis.be-link (/movies/detail/35300/...) of een kaal getal."""
-    m = re.search(r"/movies/detail/(\d+)", text) or re.fullmatch(r"\s*(\d+)\s*", text)
+    """Film-id uit een link of tekst: HO-code (nieuwe site) of getal (oude site)."""
+    if m := HO_RE.search(text or ""):
+        return m[0]
+    m = re.search(r"/movies/detail/(\d+)", text or "") or re.fullmatch(r"\s*(\d+)\s*", text or "")
     return m.group(1) if m else None
 
 
-def fetch_showings(movie_id: str, country: str = "BE/NL", channel: str = "Cinema",
-                   sales: str = "KinepolisBelgium") -> list[Showing]:
+# ---------------- OCAPI (nieuwe site) ----------------
+
+def _correlation_id() -> str:
+    alphabet = string.ascii_lowercase + string.digits
+    return "OCC-" + "".join(secrets.choice(alphabet) for _ in range(33))
+
+
+def _headers() -> dict:
+    return {"Accept": "application/json", "Origin": SITE, "Referer": SITE + "/",
+            "correlationid": _correlation_id()}
+
+
+def _ocapi(path: str, params: list[tuple[str, str]]) -> dict | None:
+    """GET op OCAPI. None = geen voorstellingen (404/204)."""
+    r = cffi_requests.get(OCAPI + path, params=params, impersonate="chrome124", timeout=20,
+                          headers=_headers())
+    if r.status_code in (204, 404):
+        return None
+    r.raise_for_status()
+    return r.json() if r.content else None
+
+
+def _text(obj) -> str:
+    return (obj or {}).get("text", "") if isinstance(obj, dict) else str(obj or "")
+
+
+def parse_ocapi(data: dict | None) -> list[Showing]:
+    """Antwoord van by-business-date -> voorstellingen (en leer cinema- en filmnamen)."""
+    if not data:
+        return []
+    rel = data.get("relatedData") or {}
+    screens = {s["id"]: _text(s.get("name")) for s in rel.get("screens", [])}
+    attrs = {a["id"]: _text(a.get("name")) for a in rel.get("attributes", [])}
+    for s in rel.get("sites", []):
+        SITE_NAMES[s["id"]] = re.sub(r"^Kinepolis\s+", "", _text(s.get("name"))) or s["id"]
+    for f in rel.get("films", []):
+        FILM_TITLES[f["id"]] = _text(f.get("title")) or f["id"]
+    out = []
+    for st in data.get("showtimes", []):
+        try:
+            start = dt.datetime.fromisoformat(st["schedule"]["startsAt"]).astimezone(TZ)
+        except (KeyError, TypeError, ValueError):
+            continue
+        hall = re.sub(r"^Zaal\s*", "", screens.get(st.get("screenId"), st.get("screenId", "")))
+        out.append(Showing(id=st["id"], cinema=st.get("siteId") or st["id"].split("-")[0],
+                           hall=hall, start=start,
+                           attrs=" ".join(attrs.get(a, "") for a in st.get("attributeIds", [])),
+                           sold_out=bool(st.get("isSoldOut"))))
+    return out
+
+
+_day_cache: dict[tuple, tuple[float, list[Showing]]] = {}
+
+
+def _params(film: str, sites: list[str]) -> list[tuple[str, str]]:
+    return [("filmIds", film)] + [("siteIds", s) for s in sites]
+
+
+def fetch_ocapi(film: str, sites: list[str], date_from: dt.date | None = None,
+                date_to: dt.date | None = None) -> list[Showing]:
+    """Voorstellingen van een HO-film: eerste speeldag (altijd vers) + volgende dagen."""
+    if not sites:
+        try:
+            return _fetch_ocapi(film, [], date_from, date_to)
+        except Exception:
+            known = sorted(KNOWN_SITES | set(SITE_NAMES))   # zonder cinema's mocht niet
+            if not known:
+                raise
+            return _fetch_ocapi(film, known, date_from, date_to)
+    return _fetch_ocapi(film, sites, date_from, date_to)
+
+
+def _fetch_ocapi(film: str, sites: list[str], date_from: dt.date | None,
+                 date_to: dt.date | None) -> list[Showing]:
+    # Eerste speeldag telkens vers (Kinepolis cachet 10 min): zo zie je een drop meteen.
+    first = None
+    for bust in (True, False):
+        try:
+            p = _params(film, sites) + ([("_", str(int(time.time())))] if bust else [])
+            first = _ocapi("showtimes/by-business-date/first", p)
+            break
+        except Exception:
+            if not bust:
+                raise
+    shows = parse_ocapi(first)
+    if not first or not first.get("businessDate"):
+        return shows
+    day = dt.date.fromisoformat(first["businessDate"]) + dt.timedelta(days=1)
+    start = max(day, date_from or day)
+    end = min(date_to or start + dt.timedelta(days=WINDOW_DAYS),
+              dt.date.fromisoformat(first["businessDate"]) + dt.timedelta(days=WINDOW_DAYS))
+    d = start
+    while d <= end:
+        key = (film, tuple(sites), d)
+        hit = _day_cache.get(key)
+        if hit and time.time() - hit[0] < DAY_CACHE_S:
+            shows += hit[1]
+        else:
+            day_shows = parse_ocapi(_ocapi(f"showtimes/by-business-date/{d.isoformat()}",
+                                           _params(film, sites)))
+            _day_cache[key] = (time.time(), day_shows)
+            shows += day_shows
+        d += dt.timedelta(days=1)
+    return sorted({s.id: s for s in shows}.values(), key=lambda s: s.start)
+
+
+# ---------------- programmatie-API (oude site) ----------------
+
+def fetch_programmation(movie_id: str, country: str = "BE/NL", channel: str = "Cinema",
+                        sales: str = "KinepolisBelgium") -> list[Showing]:
     url = f"{PROG_API}Sessions/{country}/{movie_id}/WWW/{channel}/{sales}"
     r = cffi_requests.get(url, impersonate="chrome124", timeout=30, headers={"Accept": "*/*"})
     r.raise_for_status()
@@ -59,27 +184,29 @@ def fetch_showings(movie_id: str, country: str = "BE/NL", channel: str = "Cinema
     return sorted(out, key=lambda x: x.start)
 
 
+def fetch_showings(movie_id: str, sites: list[str] | None = None,
+                   date_from: dt.date | None = None, date_to: dt.date | None = None) -> list[Showing]:
+    """Alle voorstellingen van een film (HO-code of oud getal)."""
+    if HO_RE.fullmatch(movie_id):
+        return fetch_ocapi(movie_id, list(sites or []), date_from, date_to)
+    return fetch_programmation(movie_id)
+
+
 def filter_showings(showings: list[Showing], cinemas: set[str], date_from: dt.date,
                     date_to: dt.date, fmt: str = "") -> list[Showing]:
     return [s for s in showings
             if (not cinemas or s.cinema in cinemas)
             and date_from <= s.start.date() <= date_to
             and (not fmt or fmt.lower() in s.attrs.lower())
+            and not s.sold_out
             and s.start > dt.datetime.now(TZ)]
-
-
-def _correlation_id() -> str:
-    alphabet = string.ascii_lowercase + string.digits
-    return "OCC-" + "".join(secrets.choice(alphabet) for _ in range(33))
 
 
 def free_seats(showing_id: str) -> int | None:
     """Aantal vrije plaatsen (incl. cosy/rolstoel, dus een bovengrens). None = onbekend."""
     try:
         r = cffi_requests.get(f"{OCAPI}showtimes/{showing_id}/seat-availability",
-                              impersonate="chrome124", timeout=20,
-                              headers={"Accept": "application/json", "Origin": WEB,
-                                       "Referer": WEB + "/", "correlationid": _correlation_id()})
+                              impersonate="chrome124", timeout=20, headers=_headers())
         if r.status_code != 200:
             return None
         return int(r.json()["summary"]["availableCount"])

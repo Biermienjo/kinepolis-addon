@@ -53,12 +53,13 @@ _HIGHLIGHT_JS = """([sel, labels, on]) => labels.forEach(l => {
 })"""
 
 
-# Alle links naar filmpagina's (vorm: /<taal>/movies/detail/<id>/<HO-code>/<x>/<naam>/).
-_CATALOG_JS = """() => [...document.querySelectorAll('a[href*="/movies/detail/"]')].map(a => ({
+# Alle links naar filmpagina's: nieuwe site /films/<naam>/<HO-code>,
+# oude site /<taal>/movies/detail/<id>/<HO-code>/<x>/<naam>/.
+_CATALOG_JS = """() => [...document.querySelectorAll('a[href*="/movies/detail/"], a[href*="/films/"]')].map(a => ({
   href: a.href,
   text: (a.getAttribute('title') || a.getAttribute('aria-label') || a.innerText || '').trim(),
 }))"""
-_DETAIL_RE = re.compile(r"/movies/detail/(\d+)/([^/]+)/[^/]+/([^/?#]+)")
+_FILM_RE = re.compile(r"/movies/detail/\d+/(HO\d{8})/[^/]+/([^/?#]+)|/films/([^/?#]+)/(HO\d{8})")
 
 
 @dataclass
@@ -151,12 +152,13 @@ class Booker:
                         page.mouse.wheel(0, 3000)
                         page.wait_for_timeout(400)
                     for a in page.evaluate(_CATALOG_JS):
-                        m = _DETAIL_RE.search(a["href"])
+                        m = _FILM_RE.search(a["href"])
                         if not m:
                             continue
+                        ho, slug = (m[1], m[2]) if m[1] else (m[4], m[3])
                         title = a["text"].split("\n")[0].strip()[:80]
-                        film = films.setdefault(m[1], {"id": m[1], "slug": m[3], "url": a["href"],
-                                                       "title": m[3].replace("-", " ").title()})
+                        film = films.setdefault(ho, {"id": ho, "slug": slug.lower(), "url": a["href"],
+                                                     "title": slug.replace("-", " ").title()})
                         if len(title) > 2 and not title.lower().startswith(("meer", "koop", "tickets")):
                             film["title"] = title
                 except PwError as e:

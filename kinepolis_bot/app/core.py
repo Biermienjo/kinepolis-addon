@@ -15,7 +15,8 @@ import requests
 import api
 
 DATA = Path(os.environ.get("DATA_DIR", "/data"))
-DEFAULT_ALIASES = {"kortrijk": "KKOR", "brussel": "KBRU"}
+DEFAULT_ALIASES = {"kortrijk": "KKOR", "brussel": "KBRU", "leuven": "SL"}
+DEFAULT_FILM_PAGES = "https://web.kinepolis.be/films, https://www.kinepolis.be/nl/films"
 DAYS = ["ma", "di", "wo", "do", "vr", "za", "zo"]
 # Herkenbare formaten in rawSessionAttributes (vrije tekst van Kinepolis).
 FORMATS = ["IMAX", "70mm", "Laser ULTRA", "4DX", "ScreenX", "Dolby Atmos", "3D", "OV"]
@@ -28,8 +29,7 @@ def load_options() -> dict:
     opts.setdefault("telegram_chat_id", os.environ.get("TG_CHAT_ID", ""))
     opts.setdefault("locaties", os.environ.get("LOCATIES", ""))
     # Pagina's waar de scanner zoekt of een film (op naam) al op Kinepolis staat.
-    opts.setdefault("film_paginas", "https://kinepolis.be/nl/, https://kinepolis.be/nl/movies, "
-                                    "https://kinepolis.be/nl/movies/coming-soon")
+    opts.setdefault("film_paginas", DEFAULT_FILM_PAGES)
     opts.setdefault("scan_interval_seconds", 30)
     opts.setdefault("ha_notify_service", os.environ.get("HA_NOTIFY", ""))
     return opts
@@ -46,8 +46,11 @@ def parse_aliases(text: str) -> dict[str, str]:
 
 
 def film_name_from(url: str, movie_id: str) -> str:
-    """'.../movies/detail/35300/HO1/0/the-odyssey/' -> 'The Odyssey'."""
-    m = re.search(r"/movies/detail/\d+/[^/]+/[^/]+/([^/?#]+)", url)
+    """Titel van een film: uit de API (als al gezien), anders uit de link."""
+    if movie_id in api.FILM_TITLES:
+        return api.FILM_TITLES[movie_id]
+    m = (re.search(r"/movies/detail/\d+/[^/]+/[^/]+/([^/?#]+)", url)
+         or re.search(r"/films/([^/?#]+)/HO\d{8}", url))
     return m[1].replace("-", " ").title() if m else f"Film {movie_id}"
 
 
@@ -172,7 +175,7 @@ def showing_json(s: api.Showing, free: int | None = None) -> dict:
 
 def search(movie_id: str, q: Query, limit: int = 40) -> list[dict]:
     out = []
-    for s in q.matches(api.fetch_showings(movie_id))[:limit]:
+    for s in q.matches(api.fetch_showings(movie_id, q.cinemas, q.date_from, q.date_to))[:limit]:
         free = api.free_seats(s.id)
         if free is None or free >= q.persons:
             out.append(showing_json(s, free))

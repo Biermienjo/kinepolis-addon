@@ -49,17 +49,24 @@ Volgorde van voorstellen: vroegste dag eerst, dan je favoriete cinema, dan het u
 Tot je *Ja* zegt, zijn de plaatsen **niet** vastgehouden; zijn ze intussen weg, dan zoekt
 de app opnieuw en krijg je een nieuw voorstel.
 
+## Hoe het werkt met Kinepolis
+
+- **Voorstellingen** komen van de nieuwe Kinepolis-site (OCAPI, films met een HO-code zoals
+  `HO00013277`). De eerste speeldag wordt bij elke controle vers opgevraagd, zodat je een
+  drop meteen ziet; latere dagen (tot 14 dagen erna) hoogstens om de 5 minuten.
+- **Films op naam** zoekt de app op de pagina's in `film_paginas` (plus altijd
+  `web.kinepolis.be/films`). Je kunt ook een link plakken, van de oude of de nieuwe site.
+- **Cinemanamen** leert de app van Kinepolis zelf; `locaties` bepaalt welke cinema's je kunt
+  kiezen voor een film die nog geen voorstellingen heeft.
+
 ## Wat (nog) niet getest is tegen de echte site
 
-Deze omgeving kon kinepolis.be niet bereiken; alles is getest tegen nagemaakte pagina's.
-- **Films op naam**: de app leest filmlinks (`/movies/detail/<id>/…`) van de pagina's in
-  `film_paginas`. Welke Kinepolis-pagina's alle (ook komende) films tonen, is niet gecontroleerd;
-  pas de lijst aan als de scanner niets vindt (de fout staat bij de scanner).
-- De **ticketpagina** heb ik nooit gezien: de app zoekt "Volwassene", een +-knop en daarna
-  "Doorgaan/Volgende". Lukt dat niet, dan zegt de app dat en rond je af in *Live*.
+- De **ticketpagina**: de app zoekt "Volwassene", een +-knop en daarna "Doorgaan/Volgende".
+  Lukt dat niet, dan zegt de app dat en rond je af in *Live*.
+- Of `web.kinepolis.be/films` ook de films van "binnenkort" toont.
+- Of Kinepolis voorstellingen zonder cinema-keuze ("overal") toelaat; anders vraagt de app ze op
+  voor alle gekende cinema's.
 - **Turnstile** of een **wachtrij** bij een drop: de app wacht tot 10 minuten; kijk mee in *Live*.
-- De voorstellings-id `<cinemacode>-<vistaSessionId>` (bv. `KKOR-164609`) komt uit de oude API.
-- De push via `ha_notify_service` en de link naar het paneel (`/hassio/ingress/local_kinepolis_bot`).
 - Studentenkaart: later.
 
 ## Bestanden
@@ -67,7 +74,7 @@ Deze omgeving kon kinepolis.be niet bereiken; alles is getest tegen nagemaakte p
 - `app/server.py`: webserver, scanners, voorstellen, Telegram-knoppen, live-koppeling (noVNC)
 - `app/web/`: de app (HTML, CSS, JavaScript)
 - `app/core.py`: instellingen, opslag, zoeken, films op naam, meldingen
-- `app/api.py`: Kinepolis-API's (voorstellingen, vrije plaatsen)
+- `app/api.py`: Kinepolis-API's (voorstellingen via OCAPI of de oude API, vrije plaatsen)
 - `app/booker.py`: browser: zaal openen, catalogus lezen, boeken
 - `app/picker.py` + `app/seats.py`: stoelenkaart lezen en beste stoelen kiezen
 - `app/test_*.py`: tests tegen nagemaakte pagina's

@@ -305,7 +305,7 @@ class Engine:
     def scan(self, w: dict):
         """Eén controle van één scanner. Nieuwe passende voorstellingen -> wachtrij."""
         q = core.Query.from_json(w)
-        found = q.rank(q.matches(api.fetch_showings(w["movie_id"])))
+        found = q.rank(q.matches(api.fetch_showings(w["movie_id"], q.cinemas, q.date_from, q.date_to)))
         with self.store.lock:
             seen = set(self.store.data["seen"])
             new = [s for s in found if s.id not in seen]
@@ -445,7 +445,10 @@ def load_aliases() -> str:
 
 
 def names() -> dict[str, str]:
-    return {v: k.title() for k, v in core.parse_aliases(load_aliases()).items()}
+    """Cinemacode -> naam: geleerd van Kinepolis, overschreven door 'locaties'."""
+    aliases = {v: k.title() for k, v in core.parse_aliases(load_aliases()).items()}
+    api.KNOWN_SITES.update(aliases)
+    return {**api.SITE_NAMES, **aliases}
 
 
 # ---------------- web ----------------
@@ -527,7 +530,8 @@ def make_app(engine: Engine, store: core.Store) -> web.Application:
         if mid := api.movie_id_from(text) if "/" in text or text.isdigit() else None:
             if mid not in store.data["films"]:
                 await blocking(api.fetch_showings, mid)          # bestaat de film?
-            select_film(mid, body.get("title") or core.film_name_from(text, mid))
+            select_film(mid, api.FILM_TITLES.get(mid) or body.get("title")
+                        or core.film_name_from(text, mid))
             return web.json_response({"movie_id": mid})
         if len(core.norm(text)) < 2:
             raise ValueError("Typ de naam van de film of plak de link van kinepolis.be.")
@@ -687,7 +691,9 @@ def main():
         return Booker(str(core.DATA / "browser"),
                       executable_path=os.environ.get("CHROMIUM_PATH") or None)
 
-    catalog_urls = [u.strip() for u in opts.get("film_paginas", "").split(",") if u.strip()]
+    # Eigen pagina's + altijd die van de nieuwe site (oude instellingen blijven anders hangen).
+    catalog_urls = list(dict.fromkeys(
+        u.strip() for u in f"{opts.get('film_paginas', '')},{core.DEFAULT_FILM_PAGES}".split(",") if u.strip()))
     engine = Engine(store, notifier, booker_factory, int(opts.get("scan_interval_seconds", 30)), names,
                     catalog_urls)
     print(f"[telegram] {notifier.describe()}", flush=True)

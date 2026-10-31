@@ -30,22 +30,23 @@ PORT = 8765
 EXE = glob.glob("/opt/pw-browsers/chromium-*/chrome-linux64/chrome")[0]
 
 # ---- nagemaakte Kinepolis ----
-CATALOG = {"35300": ("The Odyssey", "HO00012154", "the-odyssey"),
-           "35301": ("The Odyssey – IMAX 70mm Experience", "HO00012155", "the-odyssey-imax-70mm-experience")}
+# Oude site-links (/movies/detail/..) en nieuwe (/films/<naam>/<HO>) door elkaar, zoals in het echt.
+CATALOG = {"HO00012154": ("The Odyssey", "/nl/movies/detail/35300/HO00012154/0/the-odyssey/"),
+           "HO00012155": ("The Odyssey – IMAX 70mm Experience",
+                          "/films/The-Odyssey-IMAX-70mm-Experience/HO00012155")}
 
 
 def catalog_page(route):
-    links = "".join(f'<a href="/nl/movies/detail/{i}/{ho}/0/{slug}/" title="{t}"><img alt=""></a>'
-                    for i, (t, ho, slug) in CATALOG.items())
+    links = "".join(f'<a href="{href}" title="{t}"><img alt=""></a>' for t, href in CATALOG.values())
     route.fulfill(status=200, content_type="text/html; charset=utf-8",
                   body=f"<html><body>{links}</body></html>")
 
 
 day = (dt.datetime.now(api.TZ) + dt.timedelta(days=2)).replace(hour=18, minute=0, second=0, microsecond=0)
-SHOWS = {"35300": [api.Showing("KKOR-1", "KKOR", "6", day, "IMAX Laser"),
+SHOWS = {"HO00012154": [api.Showing("KKOR-1", "KKOR", "6", day, "IMAX Laser"),
                    api.Showing("KBRU-3", "KBRU", "1", day + dt.timedelta(hours=2), "IMAX 70mm"),
                    api.Showing("KKOR-5", "KKOR", "2", day + dt.timedelta(days=1), "4DX")]}
-api.fetch_showings = lambda mid: SHOWS.get(mid, [])
+api.fetch_showings = lambda mid, *a, **k: SHOWS.get(mid, [])
 api.free_seats = lambda sid: 150
 
 
@@ -179,10 +180,10 @@ with sync_playwright() as p:
     expect(page.locator(".scanner.paused")).to_have_count(0)
 
     # 6. de film verschijnt op Kinepolis -> scanner schakelt vanzelf over
-    CATALOG["40000"] = ("Dune: Part Three", "HO00020000", "dune-part-three")
-    SHOWS["40000"] = []
+    CATALOG["HO00020000"] = ("Dune: Part Three", "/films/Dune-Part-Three/HO00020000")
+    SHOWS["HO00020000"] = []
     engine.tasks.put((engine._check_catalog, ()))
-    wait_for(lambda: "40000" in store.data["films"], 60, "film opgedoken")
+    wait_for(lambda: "HO00020000" in store.data["films"], 60, "film opgedoken")
     assert all(not w["movie_id"].startswith(core.PENDING) for w in store.data["watches"])
     assert any("Dune: Part Three staat nu op Kinepolis" in t for t in tg.texts()), tg.texts()
     page.click(".tabs >> text=Zoeken")
@@ -194,7 +195,7 @@ with sync_playwright() as p:
 
     # en zodra er voorstellingen komen: voorstel (oneindig doorscannen)
     engine.update(state="idle", proposal=False)
-    SHOWS["40000"] = [api.Showing("KGEN-7", "KGEN", "3", day + dt.timedelta(days=5), "IMAX")]
+    SHOWS["HO00020000"] = [api.Showing("KGEN-7", "KGEN", "3", day + dt.timedelta(days=5), "IMAX")]
     wait_for(lambda: engine.snapshot()["state"] == "choose"
              and engine.snapshot()["showing"]["id"] == "KGEN-7", what="voorstel Dune")
     wait_for(lambda: any("Dune: Part Three" in (m.get("caption") or "") and "Zal ik" in m["caption"]

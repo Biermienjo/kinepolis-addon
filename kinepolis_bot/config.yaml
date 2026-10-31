@@ -1,5 +1,5 @@
 name: Kinepolis
-version: "0.4.0"
+version: "0.5.0"
 slug: kinepolis_bot
 description: Scanners voor (nog niet uitgebrachte) films die je de beste plaatsen voorstellen en ze in je mandje zetten.
 arch:
@@ -21,7 +21,7 @@ options:
   locaties: "kortrijk=KKOR, brussel=KBRU, leuven=SL"
   scan_interval_seconds: 30
   ha_notify_service: ""
-  film_paginas: "https://kinepolis.be/nl/, https://kinepolis.be/nl/movies, https://kinepolis.be/nl/movies/coming-soon"
+  film_paginas: "https://web.kinepolis.be/films, https://www.kinepolis.be/nl/films"
 schema:
   telegram_token: password?
   telegram_chat_id: str?
