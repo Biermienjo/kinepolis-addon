@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.3
+- Knop **Bijwerken** weggehaald (Home Assistant laat een add-on zichzelf niet bijwerken).
+  De add-on laat HA nog wel elk uur naar updates kijken; met *Auto update* gaat het vanzelf.
+
 ## 0.6.2
 - Fix "kon geen geldige sleutel ophalen": de browser zoekt de Kinepolis-sleutel nu ook op een
   filmpagina, in de opslag van de pagina en in de antwoorden van Kinepolis.

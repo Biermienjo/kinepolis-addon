@@ -656,25 +656,6 @@ def make_app(engine: Engine, store: core.Store) -> web.Application:
                       proposal=False)
         return web.json_response(engine.snapshot())
 
-    @routes.get("/api/version")
-    async def version(request):
-        sup = core.Supervisor()
-        check = request.query.get("check") == "1"
-        try:
-            return web.json_response(await blocking(sup.check if check else sup.version))
-        except Exception as e:
-            return web.json_response({"error": f"Kon niet bij Home Assistant: {e}"})
-
-    @routes.post("/api/update")
-    async def do_update(_):
-        sup = core.Supervisor()
-        v = await blocking(sup.check)
-        if not v.get("update"):
-            return web.json_response({"started": False, **v})
-        # Op de achtergrond: Home Assistant stopt deze add-on tijdens het bijwerken.
-        threading.Thread(target=sup.update, daemon=True).start()
-        return web.json_response({"started": True, **v})
-
     @routes.get("/api/job")
     async def job(_):
         return web.json_response(engine.snapshot())

@@ -36,7 +36,5 @@ sup = core.Supervisor()
 assert sup.version() == {"installed": "0.6.0", "latest": "0.6.0", "update": False, "slug": "16a8a2cf_kinepolis_bot"}
 v = sup.check()
 assert v["update"] and v["latest"] == "0.6.1", v
-sup.update()
-assert calls[-1] == "POST /store/addons/16a8a2cf_kinepolis_bot/update", calls
 print(calls)
 print("OK")

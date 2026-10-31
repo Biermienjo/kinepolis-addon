@@ -237,12 +237,6 @@ class Supervisor:
         self._call("POST", "/store/reload", 120)
         return self.version()
 
-    def update(self) -> None:
-        """Start het bijwerken. De add-on herstart daarbij zichzelf."""
-        slug = self.version().get("slug")
-        if slug:
-            self._call("POST", f"/store/addons/{slug}/update", 900)
-
 
 class Notifier:
     """Meldingen via de Home Assistant-app (push) en/of Telegram. Beide optioneel."""
