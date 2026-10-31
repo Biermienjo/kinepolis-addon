@@ -351,6 +351,8 @@ class Engine:
         me = self.notifier.tg("getMe")
         if me:
             print(f"[telegram] verbonden als @{me.get('username')}", flush=True)
+        elif "niet bereikbaar" in self.notifier.error:
+            print("[telegram] Telegram is nu niet bereikbaar; ik probeer het straks opnieuw.", flush=True)
         else:
             print("[telegram] token wordt niet herkend: kijk telegram_token na in de configuratie "
                   "(zoals BotFather hem gaf, bv. 123456789:AAH...).", flush=True)

@@ -271,6 +271,7 @@ class Notifier:
                 self.error = ""
             return body.get("result")
         except (requests.RequestException, ValueError) as e:
+            self.error = f"Telegram niet bereikbaar ({type(e).__name__})"
             print("[telegram]", e, flush=True)
             return None
 
