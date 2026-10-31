@@ -7,6 +7,7 @@ import os
 import re
 import threading
 import unicodedata
+from difflib import SequenceMatcher
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -71,13 +72,18 @@ def match_films(catalog: list[dict], name: str) -> list[dict]:
     words = [_SAME.get(w, w) for w in norm(name).split()]
     if not words:
         return []
+    def close(w: str, hay: list[str]) -> bool:          # "duen" ~ "dune"
+        return len(w) >= 4 and any(len(h) >= 4 and SequenceMatcher(None, w, h).ratio() >= 0.75
+                                   for h in hay)
+
     hits = []
     for f in catalog:
         hay = [_SAME.get(w, w) for w in f"{norm(f['title'])} {norm(f['slug'])}".split()]
-        if all(w in hay for w in words):
+        exact_words = all(w in hay for w in words)
+        if exact_words or all(w in hay or close(w, hay) for w in words):
             exact = norm(f["title"]) == norm(name) or norm(f["slug"]) == norm(name)
-            hits.append((not exact, len(f["slug"]), f))
-    return [f for *_, f in sorted(hits, key=lambda x: x[:2])]
+            hits.append((not exact_words, not exact, len(f["slug"]), f))
+    return [f for *_, f in sorted(hits, key=lambda x: x[:3])]
 
 
 PENDING = "naam:"            # film-id van een film die nog niet op Kinepolis staat

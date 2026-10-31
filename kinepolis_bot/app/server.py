@@ -34,6 +34,7 @@ INGRESS_PEERS = {"172.30.32.2", "127.0.0.1", "::1"}
 BUSY = {"loading", "booking"}
 TOKEN_PAGES = ["https://web.kinepolis.be/films", "https://www.kinepolis.be/nl/"]
 QUEUE_WAIT_S = 600          # bij een drop: tot 10 min wachten in een eventuele wachtrij
+CATALOG_CACHE_S = 600       # gelezen filmlijst 10 min onthouden
 CATALOG_EVERY_S = 300       # zo vaak kijken of een film (op naam) al op Kinepolis staat
 
 
@@ -45,6 +46,7 @@ class Engine:
         self.store, self.notifier, self.booker_factory = store, notifier, booker_factory
         self.catalog_urls = catalog_urls or []
         self.catalog_status: dict = {}            # laatste catalogus-controle
+        self._catalog_cache: tuple | None = None  # (tijd, films) om snel opnieuw te zoeken
         self.interval_s, self.names = interval_s, names
         self.lock = threading.RLock()
         self.job: dict = {"state": "idle", "message": "", "seq": 0, "proposal": False}
@@ -270,20 +272,33 @@ class Engine:
         return box.get("token")
 
     # ---------- films op naam ----------
-    def catalog_lookup(self, name: str, timeout: float = 90) -> list[dict] | None:
+    def catalog_lookup(self, name: str, timeout: float = 170) -> list[dict] | None:
         """Zoekt `name` in de Kinepolis-catalogus (via de browser). None = geen antwoord."""
+        cached = self._catalog_cache
+        if cached and time.time() - cached[0] < CATALOG_CACHE_S:
+            if hits := core.match_films(cached[1], name):
+                return hits
         done, box = threading.Event(), {}
 
         def task():
             try:
-                box["films"] = self.booker.catalog(self.catalog_urls)
-                self.catalog_status = {"last": time.time(), "count": len(box["films"]), "error": ""}
+                films = self.booker.catalog(self.catalog_urls,
+                                            stop=lambda f: bool(core.match_films(f, name)))
+                box["films"] = films
+                self._remember_catalog(films)
             finally:
                 done.set()
         self.tasks.put((task, ()))
         if not done.wait(timeout) or "films" not in box:
             return None
         return core.match_films(box["films"], name)
+
+    def _remember_catalog(self, films: list[dict]):
+        old = {f["id"]: f for f in (self._catalog_cache or (0, []))[1]}
+        old.update({f["id"]: f for f in films})                  # vroeg gestopt: aanvullen
+        self._catalog_cache = (time.time(), list(old.values()))
+        self.catalog_status = {"last": time.time(), "count": len(films),
+                               "error": "" if films else "Geen films gevonden op de pagina's"}
 
     def _check_catalog(self):
         with self.store.lock:
@@ -292,9 +307,9 @@ class Engine:
         if not pending:
             return
         try:
-            films = self.booker.catalog(self.catalog_urls)
-            self.catalog_status = {"last": time.time(), "count": len(films),
-                                   "error": "" if films else "Geen films gevonden op de pagina's"}
+            films = self.booker.catalog(self.catalog_urls, stop=lambda f: all(
+                core.match_films(f, n) for n in pending.values()))
+            self._remember_catalog(films)
         except Exception as e:
             self.catalog_status = {"last": time.time(), "count": 0, "error": str(e)[:200]}
             raise
@@ -727,8 +742,11 @@ def main():
                       executable_path=os.environ.get("CHROMIUM_PATH") or None)
 
     # Eigen pagina's + altijd die van de nieuwe site (oude instellingen blijven anders hangen).
-    catalog_urls = list(dict.fromkeys(
-        u.strip() for u in f"{opts.get('film_paginas', '')},{core.DEFAULT_FILM_PAGES}".split(",") if u.strip()))
+    # Eerst de standaardpagina's (de volledige filmlijst), dan je eigen; oude pagina's van de
+    # eerste versies (kinepolis.be/nl/movies...) bestaan niet meer en vertragen alleen.
+    catalog_urls = [u for u in dict.fromkeys(
+        u.strip() for u in f"{core.DEFAULT_FILM_PAGES},{opts.get('film_paginas', '')}".split(",") if u.strip())
+        if "/movies" not in u and u.rstrip("/") not in ("https://kinepolis.be/nl", "https://www.kinepolis.be/nl")]
     engine = Engine(store, notifier, booker_factory, int(opts.get("scan_interval_seconds", 30)), names,
                     catalog_urls)
     print(f"[telegram] {notifier.describe()}", flush=True)

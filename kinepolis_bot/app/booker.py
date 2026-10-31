@@ -240,7 +240,7 @@ class Booker:
             page.close()
         return None
 
-    def catalog(self, urls: list[str]) -> list[dict]:
+    def catalog(self, urls: list[str], stop=None) -> list[dict]:
         """Films die op deze Kinepolis-pagina's gelinkt staan: [{id, slug, title, url}].
 
         Gebruikt een apart tabblad, zodat een open stoelkeuze niet verstoord wordt.
@@ -273,6 +273,9 @@ class Booker:
                         if still >= 3:                           # 3x niets nieuws: einde lijst
                             break
                     self._collect_films(page, films)
+                    print(f"[catalogus] {url}: {len(films)} films tot nu toe", flush=True)
+                    if stop and stop(list(films.values())):      # gevonden: klaar
+                        break
                 except PwError as e:
                     print(f"[catalogus] {url}: {e}", flush=True)
         finally:

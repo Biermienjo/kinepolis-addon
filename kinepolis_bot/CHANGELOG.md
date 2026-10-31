@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.4
+- **Films op naam sneller en betrouwbaarder**: eerst de volledige filmlijst
+  (`kinepolis.be/nl/films/`), stoppen zodra de film gevonden is, en de lijst 10 minuten
+  onthouden. Oude pagina's uit de eerste versies worden overgeslagen (die vertraagden het
+  zoeken tot het afgebroken werd).
+- **Tikfouten** in de naam mogen: "duen part 3" vindt "Dune Part Three".
+- Het log toont per pagina hoeveel films er gevonden zijn (`[catalogus] …`).
+
 ## 0.6.3
 - **Stoelen aanklikken**: een gekozen stoel wordt nu ook herkend als de site hem anders toont
   (class of label i.p.v. `aria-pressed`). Bij twijfel geldt een actieve knop *Tickets selecteren*.
