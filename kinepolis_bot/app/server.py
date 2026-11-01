@@ -34,7 +34,7 @@ INGRESS_PEERS = {"172.30.32.2", "127.0.0.1", "::1"}
 BUSY = {"loading", "booking"}
 TOKEN_PAGES = ["https://web.kinepolis.be/films", "https://www.kinepolis.be/nl/"]
 QUEUE_WAIT_S = 600          # bij een drop: tot 10 min wachten in een eventuele wachtrij
-CATALOG_CACHE_S = 600       # gelezen filmlijst 10 min onthouden
+CATALOG_CACHE_S = 3600      # gelezen filmlijst 1 uur onthouden (op de achtergrond vernieuwd)
 CATALOG_EVERY_S = 300       # zo vaak kijken of een film (op naam) al op Kinepolis staat
 
 
@@ -313,10 +313,7 @@ class Engine:
         except Exception as e:
             self.catalog_status = {"last": time.time(), "count": 0, "error": str(e)[:200]}
             raise
-        for mid, name in pending.items():
-            hits = core.match_films(films, name)
-            if hits:
-                self.resolve_film(mid, hits[0])
+        self._resolve_pending(films)
 
     def resolve_film(self, pending: str, film: dict):
         """Film staat nu op Kinepolis: scanners schakelen over op voorstellingen."""
@@ -336,9 +333,31 @@ class Engine:
         self.store.add_event(text.split("\n")[0], "film")
         self.notifier.send(text, urgent=True)
 
+    def refresh_catalog(self):
+        """Filmlijst op de achtergrond inlezen, zodat zoeken op naam meteen klaar is."""
+        try:
+            films = self.booker.catalog(self.catalog_urls)
+            self._remember_catalog(films)
+            self._resolve_pending(films)
+        except Exception as e:
+            print("[catalogus]", e, flush=True)
+
+    def _resolve_pending(self, films: list[dict]):
+        with self.store.lock:
+            pending = {mid: name for mid, name in self.store.data["films"].items()
+                       if mid.startswith(core.PENDING)}
+        for mid, name in pending.items():
+            if hits := core.match_films(films, name):
+                self.resolve_film(mid, hits[0])
+
     def _catalog_loop(self):
         while True:
             time.sleep(15)
+            cache = self._catalog_cache
+            if (self.snapshot()["state"] not in BUSY | {"choose"}
+                    and (not cache or time.time() - cache[0] > CATALOG_CACHE_S - 300)):
+                self._catalog_cache = (time.time(), cache[1] if cache else [])   # niet dubbel
+                self.tasks.put((self.refresh_catalog, ()))
             if time.time() - self.catalog_status.get("last", 0) < CATALOG_EVERY_S:
                 continue
             with self.store.lock:
@@ -353,7 +372,8 @@ class Engine:
     def scan(self, w: dict):
         """Eén controle van één scanner. Nieuwe passende voorstellingen -> wachtrij."""
         q = core.Query.from_json(w)
-        found = q.rank(q.matches(api.fetch_showings(w["movie_id"], q.cinemas, q.date_from, q.date_to)))
+        found = q.rank(q.matches(api.fetch_showings(w["movie_id"], q.cinemas, q.date_from, q.date_to,
+                                                    q.days)))
         with self.store.lock:
             seen = set(self.store.data["seen"])
             new = [s for s in found if s.id not in seen]
@@ -580,8 +600,6 @@ def make_app(engine: Engine, store: core.Store) -> web.Application:
             select_film(body["id"], "")
             return web.json_response({"movie_id": body["id"]})
         if mid := api.movie_id_from(text) if "/" in text or text.isdigit() else None:
-            if mid not in store.data["films"]:
-                await blocking(api.fetch_showings, mid)          # bestaat de film?
             select_film(mid, api.FILM_TITLES.get(mid) or body.get("title")
                         or core.film_name_from(text, mid))
             return web.json_response({"movie_id": mid})
@@ -612,15 +630,10 @@ def make_app(engine: Engine, store: core.Store) -> web.Application:
 
     @routes.get("/api/locations")
     async def locations(_):
-        # Ook cinema's zonder voorstellingen (nog niet in verkoop) kun je kiezen.
+        # Meteen: cinema's uit 'locaties' en wat we van Kinepolis geleerd hebben (geen API-wachten).
         n = names()
-        counts = {code: 0 for code in n}
-        showings = [] if movie_id().startswith(core.PENDING) else await blocking(api.fetch_showings, movie_id())
-        for s in showings:
-            if s.start > dt.datetime.now(api.TZ):
-                counts[s.cinema] = counts.get(s.cinema, 0) + 1
-        return web.json_response([{"code": c, "name": n.get(c, c), "count": k}
-                                  for c, k in sorted(counts.items(), key=lambda x: n.get(x[0], x[0]))])
+        return web.json_response([{"code": c, "name": name, "count": 0}
+                                  for c, name in sorted(n.items(), key=lambda x: x[1])])
 
     @routes.post("/api/search")
     async def do_search(request):
@@ -762,6 +775,7 @@ def main():
     print(f"[telegram] {notifier.describe()}", flush=True)
     api.token_provider = engine.fetch_api_token
     engine.tasks.put((lambda: engine.booker, ()))     # browser alvast starten
+    engine.tasks.put((api.api_token, ()))             # sleutel alvast ophalen (eerste zoekopdracht snel)
     engine.start_background()
     web.run_app(make_app(engine, store), host="0.0.0.0", port=int(os.environ.get("PORT", 8099)))
 

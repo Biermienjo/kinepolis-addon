@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.0
+- **Wanneer kan je?** Kies *Alle dagen* of tik in een **kalender** de dagen aan waarop je kunt
+  (meerdere, ook maanden vooruit; snelknop *Weekends*). De scanner kijkt precies naar die dagen.
+- **Sneller**: na *Kies* staat de film meteen klaar (geen wachten op voorstellingen); de
+  cinemalijst verschijnt meteen; de Kinepolis-sleutel wordt al bij het opstarten opgehaald.
+- **Zoeken op naam sneller**: stoppen zodra de film in de data van de pagina staat, en de
+  filmlijst wordt op de achtergrond ingelezen en een uur bijgehouden.
+- `telegram_chat_id` staat standaard op 5932217902.
+
 ## 0.6.5
 - **Films op naam**: de browser wacht tot de filmkaarten verschenen zijn en haalt films ook uit
   de filmdata (JSON) die de pagina laadt, ook als de kaarten zelf niet zichtbaar worden.

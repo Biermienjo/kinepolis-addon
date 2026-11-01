@@ -133,6 +133,17 @@ with sync_playwright() as p:
     page.click("#cinemas >> text=Kortrijk")
     expect(page.locator("#cinemas .nr")).to_have_count(2)
     page.screenshot(path=f"{SHOTS}/2-instellen.png", full_page=True)
+    # kalender: alleen de dag van KKOR-5 -> enkel die voorstelling
+    page.click("#day-mode >> text=Kies dagen")
+    target = (day + dt.timedelta(days=1)).date()
+    if target.month != dt.datetime.now(api.TZ).month:            # kalender opent op de maand in België
+        page.click("[data-nav='1']")
+    page.click(f"[data-d='{target.isoformat()}']")
+    expect(page.locator("#day-mode")).to_contain_text("1")
+    page.screenshot(path=f"{SHOTS}/2b-kalender.png", full_page=True)
+    page.click("#do-search")
+    expect(page.locator(".show")).to_have_count(1)
+    page.click("#day-mode >> text=Alle dagen")
     page.click("#do-scan")
     expect(page.locator(".scanner")).to_have_count(1)
 

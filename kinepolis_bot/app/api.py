@@ -162,21 +162,32 @@ def _params(film: str, sites: list[str]) -> list[tuple[str, str]]:
 
 
 def fetch_ocapi(film: str, sites: list[str], date_from: dt.date | None = None,
-                date_to: dt.date | None = None) -> list[Showing]:
+                date_to: dt.date | None = None, days: tuple[str, ...] = ()) -> list[Showing]:
     """Voorstellingen van een HO-film: eerste speeldag (altijd vers) + volgende dagen."""
     if not sites:
         try:
-            return _fetch_ocapi(film, [], date_from, date_to)
+            return _fetch_ocapi(film, [], date_from, date_to, days)
         except Exception:
             known = sorted(KNOWN_SITES | set(SITE_NAMES))   # zonder cinema's mocht niet
             if not known:
                 raise
-            return _fetch_ocapi(film, known, date_from, date_to)
-    return _fetch_ocapi(film, sites, date_from, date_to)
+            return _fetch_ocapi(film, known, date_from, date_to, days)
+    return _fetch_ocapi(film, sites, date_from, date_to, days)
+
+
+def _day(film: str, sites: list[str], d: dt.date) -> list[Showing]:
+    """Voorstellingen op één dag (5 min onthouden: latere dagen veranderen zelden)."""
+    key = (film, tuple(sites), d)
+    hit = _day_cache.get(key)
+    if hit and time.time() - hit[0] < DAY_CACHE_S:
+        return hit[1]
+    shows = parse_ocapi(_ocapi(f"showtimes/by-business-date/{d.isoformat()}", _params(film, sites)))
+    _day_cache[key] = (time.time(), shows)
+    return shows
 
 
 def _fetch_ocapi(film: str, sites: list[str], date_from: dt.date | None,
-                 date_to: dt.date | None) -> list[Showing]:
+                 date_to: dt.date | None, days: tuple[str, ...] = ()) -> list[Showing]:
     # Eerste speeldag telkens vers (Kinepolis cachet 10 min): zo zie je een drop meteen.
     first = None
     for bust in (True, False):
@@ -190,22 +201,17 @@ def _fetch_ocapi(film: str, sites: list[str], date_from: dt.date | None,
     shows = parse_ocapi(first)
     if not first or not first.get("businessDate"):
         return shows
-    day = dt.date.fromisoformat(first["businessDate"]) + dt.timedelta(days=1)
-    start = max(day, date_from or day)
-    end = min(date_to or start + dt.timedelta(days=WINDOW_DAYS),
-              dt.date.fromisoformat(first["businessDate"]) + dt.timedelta(days=WINDOW_DAYS))
-    d = start
-    while d <= end:
-        key = (film, tuple(sites), d)
-        hit = _day_cache.get(key)
-        if hit and time.time() - hit[0] < DAY_CACHE_S:
-            shows += hit[1]
-        else:
-            day_shows = parse_ocapi(_ocapi(f"showtimes/by-business-date/{d.isoformat()}",
-                                           _params(film, sites)))
-            _day_cache[key] = (time.time(), day_shows)
-            shows += day_shows
-        d += dt.timedelta(days=1)
+    first_day = dt.date.fromisoformat(first["businessDate"])
+    if days:                                   # alleen de gekozen dagen (ook ver vooruit)
+        wanted = [dt.date.fromisoformat(x) for x in days]
+    else:                                      # anders: tot 14 dagen na de eerste speeldag
+        start = max(first_day + dt.timedelta(days=1), date_from or first_day)
+        end = min(date_to or first_day + dt.timedelta(days=WINDOW_DAYS),
+                  first_day + dt.timedelta(days=WINDOW_DAYS))
+        wanted = [start + dt.timedelta(days=i) for i in range((end - start).days + 1)]
+    for d in wanted:
+        if d > first_day:                      # eerdere dagen hebben geen voorstellingen
+            shows += _day(film, sites, d)
     return sorted({s.id: s for s in shows}.values(), key=lambda s: s.start)
 
 
@@ -231,10 +237,11 @@ def fetch_programmation(movie_id: str, country: str = "BE/NL", channel: str = "C
 
 
 def fetch_showings(movie_id: str, sites: list[str] | None = None,
-                   date_from: dt.date | None = None, date_to: dt.date | None = None) -> list[Showing]:
+                   date_from: dt.date | None = None, date_to: dt.date | None = None,
+                   days: tuple[str, ...] = ()) -> list[Showing]:
     """Alle voorstellingen van een film (HO-code of oud getal)."""
     if HO_RE.fullmatch(movie_id):
-        return fetch_ocapi(movie_id, list(sites or []), date_from, date_to)
+        return fetch_ocapi(movie_id, list(sites or []), date_from, date_to, tuple(days))
     return fetch_programmation(movie_id)
 
 

@@ -8,7 +8,8 @@ const BUSY = ["loading", "booking"];
 
 const S = {
   films: {}, movieId: null, names: {}, watches: [], events: [], formats: [],
-  locations: [], persons: 2, cinemas: new Set(), fmt: "", quick: "all", timeFrom: "",
+  locations: [], persons: 2, cinemas: new Set(), fmt: "", timeFrom: "",
+  dayMode: "all", days: new Set(), calMonth: null,
   interval: 30, telegram: false, pending: [], catalogAgo: null, catalogError: "", catalogEvery: 300,
   results: null, job: { state: "idle", seq: -1 }, picked: [], view: "search",
 };
@@ -43,6 +44,8 @@ const parts = (iso) => Object.fromEntries(new Intl.DateTimeFormat("nl-BE", { tim
   day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })
   .formatToParts(new Date(iso)).map((p) => [p.type, p.value]));
 const hhmm = (iso) => { const p = parts(iso); return `${p.hour}:${p.minute}`; };
+// Vandaag in België als "YYYY-MM-DD" (en-CA geeft precies dat formaat).
+const todayBE = () => new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date());
 const dayLabel = (iso) => { const p = parts(iso); return `${p.weekday} ${p.day}/${p.month}`; };
 
 // ---------- navigatie ----------
@@ -94,7 +97,7 @@ function renderMatches(r) {
     r.matches.map((m, i) => `<div class="match"><div><div class="t">${h(m.title)}</div>
       <div class="sub">film ${h(m.id)}</div></div><button class="btn primary small" data-m="${i}">Kies</button></div>`).join("") +
     `<button class="btn ghost wide" id="film-wait">Staat er niet bij: wacht op “${h(r.name)}”</button>`;
-  document.querySelectorAll("[data-m]").forEach((b) => (b.onclick = () => busy(b, async () => {
+  document.querySelectorAll("#film-matches [data-m]").forEach((b) => (b.onclick = () => busy(b, async () => {
     const m = r.matches[b.dataset.m];
     filmChosen(await call("api/film", { body: { url: m.url, title: m.title } }));
   })));
@@ -144,22 +147,57 @@ function renderCinemas() {
   }));
 }
 
-const QUICK = [["all", "Alles"], ["0", "Vandaag"], ["1", "Morgen"], ["we", "Weekend"], ["7", "7 dagen"], ["30", "30 dagen"]];
-function setQuick(k) {
-  S.quick = k;
-  let from = new Date(), to;
-  if (k === "we") { const d = new Date(); const toSat = (6 - d.getDay() + 7) % 7; from = addDays(d.getDay() === 0 ? 0 : toSat); to = addDays(d.getDay() === 0 ? 0 : toSat + 1); }
-  else if (k === "1") { from = addDays(1); to = from; }
-  else if (k === "all") to = addDays(730);
-  else to = addDays(Number(k));
-  $("#date-from").value = iso(from); $("#date-to").value = iso(to);
-  renderQuick();
+// ---------- wanneer kan je: alle dagen of gekozen dagen (kalender) ----------
+const MONTHS = ["januari", "februari", "maart", "april", "mei", "juni", "juli", "augustus",
+  "september", "oktober", "november", "december"];
+function renderDays() {
+  const n = S.days.size;
+  $("#day-mode").innerHTML =
+    `<button class="chip ${S.dayMode === "all" ? "on" : ""}" data-mode="all">Alle dagen</button>` +
+    `<button class="chip ${S.dayMode === "pick" ? "on" : ""}" data-mode="pick">Kies dagen${n ? `<small>${n}</small>` : ""}</button>`;
+  document.querySelectorAll("#day-mode .chip").forEach((b) => (b.onclick = () => { S.dayMode = b.dataset.mode; renderDays(); }));
+  const cal = $("#calendar");
+  cal.hidden = S.dayMode !== "pick";
+  if (cal.hidden) return;
+  const today = todayBE();
+  if (!S.calMonth) S.calMonth = new Date(+today.slice(0, 4), +today.slice(5, 7) - 1, 1);
+  const m = S.calMonth, y = m.getFullYear(), mo = m.getMonth();
+  const thisMonth = new Date(+today.slice(0, 4), +today.slice(5, 7) - 1, 1);
+  const first = new Date(y, mo, 1), days = new Date(y, mo + 1, 0).getDate();
+  const offset = (first.getDay() + 6) % 7;                      // maandag eerst
+  let cells = "";
+  for (let i = 0; i < offset; i++) cells += "<span></span>";
+  for (let d = 1; d <= days; d++) {
+    const key = iso(new Date(y, mo, d)), past = key < today;
+    cells += `<button class="day ${S.days.has(key) ? "on" : ""} ${key === today ? "today" : ""}" data-d="${key}"
+      ${past ? "disabled" : ""}>${d}</button>`;
+  }
+  cal.innerHTML = `<div class="cal-head">
+      <button class="round small" data-nav="-1" aria-label="Vorige maand" ${m <= thisMonth ? "disabled" : ""}>‹</button>
+      <b>${MONTHS[mo]} ${y}</b>
+      <button class="round small" data-nav="1" aria-label="Volgende maand">›</button></div>
+    <div class="cal-grid">${["ma", "di", "wo", "do", "vr", "za", "zo"].map((w) => `<i>${w}</i>`).join("")}${cells}</div>
+    <div class="cal-foot"><button class="chip" id="cal-weekends">Weekends ${MONTHS[mo]}</button>
+      <span class="hint">${n ? `${n} dag${n === 1 ? "" : "en"} gekozen` : "Tik de dagen aan waarop je kunt."}</span>
+      ${n ? '<button class="btn ghost small" id="cal-clear">Wis</button>' : ""}</div>`;
+  cal.querySelectorAll("[data-d]").forEach((b) => (b.onclick = () => {
+    S.days.has(b.dataset.d) ? S.days.delete(b.dataset.d) : S.days.add(b.dataset.d); renderDays();
+  }));
+  cal.querySelectorAll("[data-nav]").forEach((b) => (b.onclick = () => {
+    S.calMonth = new Date(y, mo + Number(b.dataset.nav), 1); renderDays();
+  }));
+  $("#cal-weekends").onclick = () => {
+    const keys = [];
+    for (let d = 1; d <= days; d++) {
+      const dt = new Date(y, mo, d), key = iso(dt);
+      if ([5, 6, 0].includes(dt.getDay()) && key >= today) keys.push(key);
+    }
+    const allOn = keys.every((k) => S.days.has(k));
+    keys.forEach((k) => (allOn ? S.days.delete(k) : S.days.add(k)));
+    renderDays();
+  };
+  $("#cal-clear")?.addEventListener("click", () => { S.days.clear(); renderDays(); });
 }
-function renderQuick() {
-  $("#quick-dates").innerHTML = QUICK.map(([k, t]) => `<button class="chip ${S.quick === k ? "on" : ""}" data-q="${k}">${t}</button>`).join("");
-  document.querySelectorAll("#quick-dates .chip").forEach((b) => (b.onclick = () => setQuick(b.dataset.q)));
-}
-["#date-from", "#date-to"].forEach((id) => ($(id).onchange = () => { S.quick = ""; renderQuick(); }));
 
 const TIMES = [["", "Altijd"], ["17:00", "vanaf 17u"], ["19:00", "vanaf 19u"], ["20:00", "vanaf 20u"]];
 function renderTimes() {
@@ -173,8 +211,11 @@ function renderFormats() {
   document.querySelectorAll("#formats .chip").forEach((b) => (b.onclick = () => { S.fmt = b.dataset.f; renderFormats(); }));
 }
 
-const query = (extra = {}) => ({ persons: S.persons, cinemas: [...S.cinemas], from: $("#date-from").value,
-  to: $("#date-to").value, fmt: S.fmt, time_from: S.timeFrom, ...extra });
+function query(extra = {}) {
+  const days = S.dayMode === "pick" ? [...S.days].sort() : [];
+  if (S.dayMode === "pick" && !days.length) throw new Error("Tik minstens één dag aan, of kies 'Alle dagen'.");
+  return { persons: S.persons, cinemas: [...S.cinemas], days, fmt: S.fmt, time_from: S.timeFrom, ...extra };
+}
 
 $("#do-search").onclick = (e) => busy(e.currentTarget, async () => {
   S.results = (await call("api/search", { body: query() })).results;
@@ -478,7 +519,7 @@ async function loadState() {
 (async () => {
   try {
     await loadState();
-    renderFilms(); renderFormats(); renderTimes(); setQuick("all");
+    renderFilms(); renderFormats(); renderTimes(); renderDays();
     loadLocations();
     S.job = await call("api/job"); renderBook();
     if (BUSY.includes(S.job.state)) poll();

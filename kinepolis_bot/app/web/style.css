@@ -163,3 +163,17 @@ input[type=url], input[type=search], input[type=date] { background: var(--card-2
   transition: .25s; pointer-events: none; max-width: calc(100% - 32px); z-index: 10; }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 #toast.bad { border-color: var(--bad); }
+
+/* kalender */
+#calendar { margin-top: 12px; }
+.cal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; text-transform: capitalize; }
+.round.small { width: 36px; height: 36px; font-size: 1.1rem; }
+.round:disabled { opacity: .3; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; }
+.cal-grid i { font-style: normal; font-size: .72rem; color: var(--muted); padding: 2px 0 4px; }
+.day { aspect-ratio: 1; border: 1px solid var(--line); background: var(--card-2); border-radius: 10px; cursor: pointer; font-size: .95rem; }
+.day:disabled { opacity: .25; cursor: default; }
+.day.today { border-color: var(--accent); }
+.day.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
+.cal-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.cal-foot .hint { margin: 0; flex: 1; }

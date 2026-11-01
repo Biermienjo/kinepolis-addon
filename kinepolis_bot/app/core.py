@@ -134,19 +134,25 @@ class Query:
     fmt: str = ""
     auto: bool = False          # meteen de beste plaatsen in het mandje
     time_from: str = ""         # "19:00" = niet vroeger dan
+    days: tuple[str, ...] = ()  # alleen deze dagen ("2026-12-19"); leeg = alle dagen
 
     def describe(self, names: dict[str, str] | None = None) -> str:
         names = names or {}
         where = " > ".join(names.get(c, c) for c in self.cinemas) or "overal"
-        span = (f"{self.date_from:%d/%m}" if self.date_from == self.date_to else
-                f"{self.date_from:%d/%m/%y} – {self.date_to:%d/%m/%y}")
+        if self.days:
+            ds = [dt.date.fromisoformat(d) for d in self.days]
+            span = ", ".join(f"{DAYS[d.weekday()]} {d.day}/{d.month}" for d in ds[:4]) + \
+                (f" +{len(ds) - 4}" if len(ds) > 4 else "")
+        else:
+            span = "alle dagen"
         return (f"{self.persons} pers. · {where} · {span}" + (f" · {self.fmt}" if self.fmt else "")
                 + (f" · vanaf {self.time_from}" if self.time_from else ""))
 
     def to_json(self) -> dict:
         return {"persons": self.persons, "cinemas": self.cinemas,
                 "from": self.date_from.isoformat(), "to": self.date_to.isoformat(),
-                "fmt": self.fmt, "auto": self.auto, "time_from": self.time_from}
+                "fmt": self.fmt, "auto": self.auto, "time_from": self.time_from,
+                "days": list(self.days)}
 
     @classmethod
     def from_json(cls, d: dict) -> "Query":
@@ -157,8 +163,14 @@ class Query:
         time_from = (d.get("time_from") or "").strip()
         if time_from and not re.fullmatch(r"\d{2}:\d{2}", time_from):
             raise ValueError("Tijd moet zoals 19:00 zijn.")
-        q = cls(persons, cinemas, dt.date.fromisoformat(d["from"]), dt.date.fromisoformat(d["to"]),
-                d.get("fmt", "").strip(), bool(d.get("auto", False)), time_from)
+        days = tuple(sorted({dt.date.fromisoformat(x).isoformat() for x in d.get("days") or []}))
+        today = dt.datetime.now(api.TZ).date()
+        start = d.get("from") or today.isoformat()
+        end = d.get("to") or (today + dt.timedelta(days=730)).isoformat()
+        if days:                                         # gekozen dagen bepalen de periode
+            start, end = days[0], days[-1]
+        q = cls(persons, cinemas, dt.date.fromisoformat(start), dt.date.fromisoformat(end),
+                d.get("fmt", "").strip(), bool(d.get("auto", False)), time_from, days)
         if q.date_to < q.date_from:
             q.date_from, q.date_to = q.date_to, q.date_from
         return q
@@ -166,7 +178,8 @@ class Query:
     def matches(self, showings: list[api.Showing]) -> list[api.Showing]:
         found = api.filter_showings(showings, set(self.cinemas), self.date_from,
                                     self.date_to, self.fmt)
-        return [s for s in found if not self.time_from or f"{s.start:%H:%M}" >= self.time_from]
+        return [s for s in found if (not self.time_from or f"{s.start:%H:%M}" >= self.time_from)
+                and (not self.days or s.start.date().isoformat() in self.days)]
 
     def rank(self, showings: list[api.Showing]) -> list[api.Showing]:
         """Voor automatisch boeken: vroegste dag eerst, dan je favoriete cinema, dan uur."""
@@ -181,7 +194,7 @@ def showing_json(s: api.Showing, free: int | None = None) -> dict:
 
 def search(movie_id: str, q: Query, limit: int = 40) -> list[dict]:
     out = []
-    for s in q.matches(api.fetch_showings(movie_id, q.cinemas, q.date_from, q.date_to))[:limit]:
+    for s in q.matches(api.fetch_showings(movie_id, q.cinemas, q.date_from, q.date_to, q.days))[:limit]:
         free = api.free_seats(s.id)
         if free is None or free >= q.persons:
             out.append(showing_json(s, free))

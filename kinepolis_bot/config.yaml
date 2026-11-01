@@ -1,5 +1,5 @@
 name: Kinepolis
-version: "0.6.5"
+version: "0.7.0"
 slug: kinepolis_bot
 description: Scanners voor (nog niet uitgebrachte) films die je de beste plaatsen voorstellen en ze in je mandje zetten.
 arch:
@@ -18,7 +18,7 @@ hassio_role: manager
 url: https://github.com/Biermienjo/kinepolis-addon
 options:
   telegram_token: ""
-  telegram_chat_id: ""
+  telegram_chat_id: "5932217902"
   locaties: "kortrijk=KKOR, brussel=KBRU, leuven=SL"
   scan_interval_seconds: 30
   ha_notify_service: ""

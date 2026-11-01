@@ -87,6 +87,19 @@ api.fetch_showings("HO00013277", ["KKOR"], dt.date(2026, 10, 31), dt.date(2026, 
 assert len(provided) == 2 and api._token["value"] == TOKEN, provided
 print("sleutel: opgehaald", len(provided), "keer, vernieuwd na 401")
 
+# gekozen dagen: alleen die dagen ophalen, ook ver na de eerste speeldag
+calls.clear()
+api._day_cache.clear()
+shows = api.fetch_showings("HO00013277", ["KKOR"], days=("2026-11-03", "2026-12-24"))
+fetched = [c[0] for c in calls]
+assert fetched == ["showtimes/by-business-date/first", "showtimes/by-business-date/2026-11-03",
+                   "showtimes/by-business-date/2026-12-24"], fetched
+import core  # noqa: E402
+q = core.Query.from_json({"persons": 2, "cinemas": ["KKOR"], "days": ["2026-11-03", "2026-12-24"]})
+assert [s.id for s in q.matches(shows)] == ["KKOR-200001"], q.matches(shows)
+assert q.describe().endswith("di 3/11, do 24/12"), q.describe()
+print("gekozen dagen:", fetched[1:], "->", [s.id for s in q.matches(shows)], "|", q.describe())
+
 # oude en nieuwe links
 assert api.movie_id_from("https://web.kinepolis.be/films/Shaun-Het-Schaap/HO00013277") == "HO00013277"
 assert api.movie_id_from("https://kinepolis.be/nl/movies/detail/35300/HO00012154/0/the-odyssey/") == "HO00012154"

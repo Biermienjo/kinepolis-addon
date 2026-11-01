@@ -289,39 +289,55 @@ class Booker:
                 before_count = len(films)
                 try:
                     page.goto(url, wait_until="domcontentloaded", timeout=45_000)
-                    page.wait_for_timeout(1500)
+                    page.wait_for_timeout(1000)
                     self._accept_cookies_on(page)
-                    try:                                       # wachten tot er films te zien zijn
-                        page.wait_for_selector('a[href*="/films/"], a[href*="/movies/detail/"]',
-                                               timeout=20_000)
-                    except PwTimeout:
-                        pass
-                    try:
-                        page.wait_for_load_state("networkidle", timeout=10_000)
-                    except PwTimeout:
-                        pass
-                    # Lange lijsten laden pas bij scrollen (en halen soms oude kaarten weg):
-                    # scrollen tot er niets meer bijkomt en onderweg alle links verzamelen.
-                    still = 0
-                    for _ in range(60):
+                    parsed: set = set()
+
+                    def harvest():
                         self._collect_films(page, films)
-                        try:
-                            page.get_by_role("button", name=MORE_BUTTON).first.click(timeout=300)
-                        except (PwTimeout, PwError):
-                            pass
-                        before = page.evaluate("[document.body.scrollHeight, window.scrollY]")
-                        page.mouse.wheel(0, 2500)
-                        page.wait_for_timeout(400)
-                        after = page.evaluate("[document.body.scrollHeight, window.scrollY]")
-                        still = still + 1 if after == before else 0
-                        if still >= 3:                           # 3x niets nieuws: einde lijst
+                        for r in list(responses):            # filmdata (JSON) van de pagina
+                            if r in parsed:
+                                continue
+                            parsed.add(r)
+                            try:
+                                _harvest_json(r.json(), films)
+                            except Exception:
+                                continue
+
+                    # Snel: kijken tot de film er is (data of links), hooguit 20 s.
+                    done, links = False, False
+                    deadline = time.time() + 20
+                    while time.time() < deadline:
+                        harvest()
+                        if stop and stop(list(films.values())):
+                            done = True
                             break
-                    self._collect_films(page, films)
-                    for r in list(responses):                   # filmdata in JSON
-                        try:
-                            _harvest_json(r.json(), films)
-                        except Exception:
-                            continue
+                        links = page.locator('a[href*="/films/"], a[href*="/movies/detail/"]').count() > 0
+                        if links or len(films) > before_count:
+                            break
+                        page.wait_for_timeout(500)
+                    if not done and links:
+                        # Lange lijsten laden pas bij scrollen (en halen soms oude kaarten weg):
+                        # scrollen tot er niets meer bijkomt en onderweg alle links verzamelen.
+                        still = 0
+                        for _ in range(60):
+                            harvest()
+                            if stop and stop(list(films.values())):
+                                break
+                            try:
+                                page.get_by_role("button", name=MORE_BUTTON).first.click(timeout=300)
+                            except (PwTimeout, PwError):
+                                pass
+                            before = page.evaluate("[document.body.scrollHeight, window.scrollY]")
+                            page.mouse.wheel(0, 2500)
+                            page.wait_for_timeout(400)
+                            after = page.evaluate("[document.body.scrollHeight, window.scrollY]")
+                            still = still + 1 if after == before else 0
+                            if still >= 3:                       # 3x niets nieuws: einde lijst
+                                break
+                    elif not done:
+                        page.wait_for_timeout(1500)              # late filmdata nog meenemen
+                    harvest()
                     found = len(films) - before_count
                     print(f"[catalogus] {url}: {found} films op deze pagina, {len(films)} in totaal",
                           flush=True)
