@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.1
+- Fix lege app na een update: script en stijl krijgen een versie in hun link, zodat de browser
+  na elke update de nieuwe bestanden laadt in plaats van een oude kopie uit de cache.
+
 ## 0.7.0
 - **Wanneer kan je?** Kies *Alle dagen* of tik in een **kalender** de dagen aan waarop je kunt
   (meerdere, ook maanden vooruit; snelknop *Weekends*). De scanner kijkt precies naar die dagen.

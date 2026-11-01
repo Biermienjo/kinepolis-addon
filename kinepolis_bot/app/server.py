@@ -11,6 +11,7 @@ Alle URL's zijn relatief, zodat het werkt onder het Ingress-pad van Home Assista
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import datetime as dt
 import json
 import os
@@ -29,6 +30,9 @@ import api
 import core
 
 WEB_DIR = Path(__file__).parent / "web"
+# Verandert bij elke nieuwe versie van de app-bestanden (inhoud van script en stijl).
+ASSET_VERSION = hashlib.sha1(b"".join((WEB_DIR / n).read_bytes()
+                                      for n in ("app.js", "style.css"))).hexdigest()[:10]
 NOVNC_DIR = Path(os.environ.get("NOVNC_DIR", "/usr/share/novnc"))
 INGRESS_PEERS = {"172.30.32.2", "127.0.0.1", "::1"}
 BUSY = {"loading", "booking"}
@@ -559,7 +563,13 @@ def make_app(engine: Engine, store: core.Store) -> web.Application:
 
     @routes.get("/")
     async def index(_):
-        return web.FileResponse(WEB_DIR / "index.html", headers={"Cache-Control": "no-cache"})
+        # Versie in de links naar script en stijl: na een update laadt de browser altijd de
+        # nieuwe bestanden (anders kan een oud, gecachet script de pagina leeg laten).
+        html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+        for name in ("app.js", "style.css"):
+            html = html.replace(f"static/{name}\"", f"static/{name}?v={ASSET_VERSION}\"")
+        return web.Response(text=html, content_type="text/html",
+                            headers={"Cache-Control": "no-cache, no-store"})
 
     @routes.get("/api/state")
     async def state(_):
